@@ -1,20 +1,47 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Cosmos Rajesh Portfolio
 
-# Run and deploy your AI Studio app
+Quick commands for local build and Firebase Hosting redeploy.
 
-This contains everything you need to run your app locally.
+## Local Run
 
-View your app in AI Studio: https://ai.studio/apps/db103f8e-f926-4fea-8291-64bc679feb3b
+```powershell
+npm install
+npm run dev
+```
 
-## Run Locally
+## Production Build
 
-**Prerequisites:**  Node.js
+```powershell
+npm run build
+```
 
+## Quick Firebase Redeploy
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Run from this folder:
+
+`d:\IdeaProjects\protfolio\cosmos-protfolio\cosmos__rajesh_portfolio`
+
+```powershell
+npm run build
+npx firebase-tools deploy --only hosting
+```
+
+## Firebase Project
+
+- Project ID: `rajesh-portfolio-78`
+- Hosting config: [firebase.json](d:/IdeaProjects/protfolio/cosmos-protfolio/cosmos__rajesh_portfolio/firebase.json)
+- Project alias config: [.firebaserc](d:/IdeaProjects/protfolio/cosmos-protfolio/cosmos__rajesh_portfolio/.firebaserc)
+
+## If Deploy Fails
+
+Re-auth Firebase:
+
+```powershell
+npx firebase-tools login --reauth
+```
+
+Then redeploy:
+
+```powershell
+npx firebase-tools deploy --only hosting
+```

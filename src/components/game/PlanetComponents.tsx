@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { Text, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore, MoonData, PlanetVisualConfig } from '../../store/useGameStore';
+import { TARGET_UX_TUNING } from '../../constants/gameData';
 
 export const Moon = React.memo(({ data, parentPlanetId }: { data: MoonData; parentPlanetId: string }) => {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -197,15 +198,36 @@ export const Rings = React.memo(({ config, radius, texturePath }: { config: NonN
   );
 });
 
-export const TargetHighlight = React.memo(({ radius, isScanning, scanProgress }: { radius: number; isScanning: boolean; scanProgress: number }) => {
+export const TargetHighlight = React.memo(({
+  radius,
+  isScanning,
+  scanProgress,
+  tone,
+  targetName,
+  distance,
+  targetType,
+  attackable,
+  scannable,
+}: {
+  radius: number;
+  isScanning: boolean;
+  scanProgress: number;
+  tone: keyof typeof TARGET_UX_TUNING.colors;
+  targetName: string;
+  distance: number;
+  targetType: string;
+  attackable: boolean;
+  scannable: boolean;
+}) => {
   const ringRef = useRef<THREE.Mesh>(null);
   const bracketsRef = useRef<THREE.Group>(null);
+  const color = TARGET_UX_TUNING.colors[tone];
 
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
     if (ringRef.current) {
       ringRef.current.rotation.z = t * 0.5;
-      ringRef.current.scale.setScalar(1 + Math.sin(t * 2) * 0.02);
+      ringRef.current.scale.setScalar(1 + Math.sin(t * TARGET_UX_TUNING.highlightPulseSpeed) * 0.02);
     }
     if (bracketsRef.current) {
       bracketsRef.current.scale.setScalar(1 + Math.sin(t * 4) * 0.01);
@@ -217,14 +239,25 @@ export const TargetHighlight = React.memo(({ radius, isScanning, scanProgress }:
       {/* Main Targeting Ring */}
       <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
         <ringGeometry args={[radius + 2, radius + 2.2, 64]} />
-        <meshBasicMaterial color="#00ffff" transparent opacity={0.6} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={color} transparent opacity={TARGET_UX_TUNING.lockRingOpacity} side={THREE.DoubleSide} />
       </mesh>
 
       {/* Outer Pulse Ring */}
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <ringGeometry args={[radius + 2.5, radius + 2.6, 64]} />
-        <meshBasicMaterial color="#00ffff" transparent opacity={0.2} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={color} transparent opacity={0.24} side={THREE.DoubleSide} />
       </mesh>
+
+      <Line
+        points={[
+          new THREE.Vector3(0, radius + 2.2, 0),
+          new THREE.Vector3(0, radius + TARGET_UX_TUNING.beaconHeight, 0),
+        ]}
+        color={color}
+        lineWidth={1}
+        transparent
+        opacity={0.75}
+      />
 
       {/* Corner Brackets */}
       <group ref={bracketsRef}>
@@ -233,15 +266,47 @@ export const TargetHighlight = React.memo(({ radius, isScanning, scanProgress }:
             <group key={`${x}-${y}`} position={[x * (radius + 3), y * (radius + 3), 0]}>
               <mesh>
                 <boxGeometry args={[2, 0.2, 0.2]} />
-                <meshBasicMaterial color="#00ffff" />
+                <meshBasicMaterial color={color} />
               </mesh>
               <mesh rotation={[0, 0, Math.PI / 2]} position={[-x * 1, y * 1, 0]}>
                 <boxGeometry args={[2, 0.2, 0.2]} />
-                <meshBasicMaterial color="#00ffff" />
+                <meshBasicMaterial color={color} />
               </mesh>
             </group>
           ))
         ))}
+      </group>
+
+      <group position={[0, radius + TARGET_UX_TUNING.beaconHeight + 2.5, 0]}>
+        <Text
+          fontSize={1.8}
+          color={color}
+          anchorX="center"
+          anchorY="middle"
+          fillOpacity={0.95}
+        >
+          {`${targetName.toUpperCase()} [LOCK]`}
+        </Text>
+        <Text
+          position={[0, -2.2, 0]}
+          fontSize={1.1}
+          color="#ffffff"
+          anchorX="center"
+          anchorY="middle"
+          fillOpacity={0.7}
+        >
+          {`${targetType.toUpperCase()}  ${distance} KM`}
+        </Text>
+        <Text
+          position={[0, -4, 0]}
+          fontSize={0.92}
+          color={color}
+          anchorX="center"
+          anchorY="middle"
+          fillOpacity={0.75}
+        >
+          {`${attackable ? 'ATTACKABLE' : 'ATTACK HOLD'}  |  ${scannable ? 'SCAN READY' : 'SCAN HOLD'}`}
+        </Text>
       </group>
 
       {/* Scanning Progress Ring */}
@@ -249,12 +314,12 @@ export const TargetHighlight = React.memo(({ radius, isScanning, scanProgress }:
         <group rotation={[Math.PI / 2, 0, 0]}>
           <mesh scale={1 + (scanProgress / 100) * 0.5}>
             <ringGeometry args={[radius + 1.5, radius + 1.8, 64, 1, 0, (scanProgress / 100) * Math.PI * 2]} />
-            <meshBasicMaterial color="#ff8800" transparent opacity={0.8} side={THREE.DoubleSide} />
+            <meshBasicMaterial color={TARGET_UX_TUNING.colors.warning} transparent opacity={0.86} side={THREE.DoubleSide} />
           </mesh>
           {/* Background for progress */}
           <mesh>
             <ringGeometry args={[radius + 1.5, radius + 1.8, 64]} />
-            <meshBasicMaterial color="#ff8800" transparent opacity={0.1} side={THREE.DoubleSide} />
+            <meshBasicMaterial color={TARGET_UX_TUNING.colors.warning} transparent opacity={0.12} side={THREE.DoubleSide} />
           </mesh>
         </group>
       )}

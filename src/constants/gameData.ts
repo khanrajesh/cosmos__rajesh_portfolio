@@ -40,8 +40,7 @@ export const PLANETS: PlanetData[] = [
       secondaryColor: '#707070',
       roughness: 0.9,
       textures: {
-        map: '/textures/planets/mercury/map.jpg',
-        normalMap: '/textures/planets/mercury/normal.jpg'
+        map: '/textures/planets/mercury/map.jpg'
       },
       damageConfig: { crackColor: '#ff4400', glowColor: '#ff8800' }
     },
@@ -63,7 +62,6 @@ export const PLANETS: PlanetData[] = [
       secondaryColor: '#B8860B',
       textures: {
         map: '/textures/planets/venus/map.jpg',
-        normalMap: '/textures/planets/venus/normal.jpg',
         cloudsMap: '/textures/planets/venus/clouds.jpg'
       },
       atmosphere: { color: '#E3BB76', intensity: 1.2, opacity: 0.3 },
@@ -87,11 +85,7 @@ export const PLANETS: PlanetData[] = [
       surfaceColor: '#2271B3',
       secondaryColor: '#228B22',
       textures: {
-        map: '/textures/planets/earth/map.jpg',
-        normalMap: '/textures/planets/earth/normal.jpg',
-        roughnessMap: '/textures/planets/earth/roughness.jpg',
-        emissiveMap: '/textures/planets/earth/emissive.jpg',
-        cloudsMap: '/textures/planets/earth/clouds.jpg'
+        map: '/textures/planets/earth/map.jpg'
       },
       atmosphere: { color: '#4da6ff', intensity: 1.1, opacity: 0.2 },
       clouds: { color: '#ffffff', opacity: 0.5, speed: 0.4 },
@@ -117,8 +111,7 @@ export const PLANETS: PlanetData[] = [
       surfaceColor: '#E27B58',
       secondaryColor: '#8B4513',
       textures: {
-        map: '/textures/planets/mars/map.jpg',
-        normalMap: '/textures/planets/mars/normal.jpg'
+        map: '/textures/planets/mars/map.jpg'
       },
       atmosphere: { color: '#E27B58', intensity: 1.05, opacity: 0.1 },
       damageConfig: { crackColor: '#ff2200', glowColor: '#ff6600' }
@@ -267,6 +260,72 @@ export const WEAPONS: WeaponData[] = [
   }
 ];
 
+export type WeaponSlot = 'primary' | 'secondary' | 'heavy';
+
+export interface WeaponBindingData {
+  slot: WeaponSlot;
+  label: string;
+  weaponId: string;
+  mouseInput?: string;
+  keyInput: string;
+  fallbackKey: string;
+  uiChip: string;
+}
+
+export const WEAPON_BINDINGS: WeaponBindingData[] = [
+  {
+    slot: 'primary',
+    label: 'Primary Attack',
+    weaponId: 'fracture-beam',
+    mouseInput: 'LMB',
+    keyInput: 'Digit1',
+    fallbackKey: 'KeyZ',
+    uiChip: 'LMB / 1',
+  },
+  {
+    slot: 'secondary',
+    label: 'Secondary Attack',
+    weaponId: 'thermal-lance',
+    mouseInput: 'RMB',
+    keyInput: 'Digit2',
+    fallbackKey: 'KeyX',
+    uiChip: 'RMB / 2',
+  },
+  {
+    slot: 'heavy',
+    label: 'Special Attack',
+    weaponId: 'graviton-destabilizer',
+    keyInput: 'Digit3',
+    fallbackKey: 'KeyF',
+    uiChip: 'F / 3',
+  },
+];
+
+export const WEAPON_SYSTEM_TUNING = {
+  attackRange: 300,
+  targetLockGrace: 18,
+  energyRegenPerSecond: 15,
+  beamFadeSpeed: 2.2,
+  cooldownTickRate: 1,
+  uiUpdateSmoothing: 0.12,
+};
+
+export const TARGET_UX_TUNING = {
+  scanRange: 100,
+  inspectRange: 180,
+  attackRange: 300,
+  highlightPulseSpeed: 2.4,
+  lockRingOpacity: 0.72,
+  beaconHeight: 22,
+  nearbyReadabilityRadius: 140,
+  colors: {
+    neutral: '#7dd3fc',
+    inRange: '#22c55e',
+    warning: '#f59e0b',
+    invalid: '#ef4444',
+  },
+};
+
 export const SHIP_SPECS = {
   // Base Physics
   acceleration: 25,
@@ -318,22 +377,22 @@ export const SHIP_SPECS = {
   
   cameraModes: {
     pilot: {
-      offset: { x: 0, y: 4, z: -12 },
-      lookAt: { x: 0, y: 0, z: 20 },
-      lerp: 0.12,
-      fov: 65
+      offset: { x: 0, y: 1.2, z: -2.2 },
+      lookAt: { x: 0, y: 0.3, z: 52 },
+      lerp: 0.14,
+      fov: 72
     },
     explorer: {
-      offset: { x: 0, y: 12, z: -35 },
-      lookAt: { x: 0, y: 0, z: 40 },
-      lerp: 0.06,
-      fov: 55
+      offset: { x: 0, y: 4.5, z: -16 },
+      lookAt: { x: 0, y: 1.2, z: 36 },
+      lerp: 0.11,
+      fov: 60
     },
     cinematic: {
-      offset: { x: 15, y: 10, z: -25 },
-      lookAt: { x: -5, y: 0, z: 10 },
-      lerp: 0.03,
-      fov: 45
+      offset: { x: 9, y: 5.5, z: -18 },
+      lookAt: { x: -1.5, y: 1, z: 28 },
+      lerp: 0.07,
+      fov: 52
     }
   },
   
@@ -342,4 +401,85 @@ export const SHIP_SPECS = {
   autoPilotSlowdownDist: 150,
   orbitDist: 50,
   discoveryRange: 30,
+};
+
+export const GAME_CAMERA_TUNING = {
+  defaultMode: 'explorer' as const,
+  orbit: {
+    yawSpeed: 0.01,
+    pitchSpeed: 0.01,
+    minPitch: -0.95,
+    maxPitch: 0.75,
+  },
+  zoom: {
+    min: {
+      pilot: 4,
+      explorer: 10,
+      cinematic: 12,
+    },
+    max: {
+      pilot: 12,
+      explorer: 38,
+      cinematic: 42,
+    },
+    wheelSpeed: 0.1,
+  },
+  modeConfig: {
+    pilot: {
+      positionDamping: 0.2,
+      lookDamping: 0.18,
+      rotationDamping: 0.2,
+      baseDistance: 6,
+      boostDistance: 8,
+      boostFovDelta: 8,
+      weaponFovDelta: -3,
+      rollFollow: 0.45,
+      lookAhead: 52,
+      targetAssist: 0.18,
+      targetComposeDistance: 160,
+      targetSideBias: 0.2,
+      shoulderBias: 0.45,
+      nearPlanetLift: 0.6,
+    },
+    explorer: {
+      positionDamping: 0.16,
+      lookDamping: 0.14,
+      rotationDamping: 0.16,
+      baseDistance: 18,
+      boostDistance: 24,
+      boostFovDelta: 10,
+      weaponFovDelta: -2,
+      rollFollow: 0.18,
+      lookAhead: 40,
+      targetAssist: 0.4,
+      targetComposeDistance: 280,
+      targetSideBias: 0.45,
+      shoulderBias: 0.2,
+      nearPlanetLift: 1.2,
+    },
+    cinematic: {
+      positionDamping: 0.1,
+      lookDamping: 0.1,
+      rotationDamping: 0.12,
+      baseDistance: 22,
+      boostDistance: 28,
+      boostFovDelta: 6,
+      weaponFovDelta: -1,
+      rollFollow: 0.12,
+      lookAhead: 32,
+      targetAssist: 0.5,
+      targetComposeDistance: 320,
+      targetSideBias: 0.8,
+      shoulderBias: 0.65,
+      nearPlanetLift: 1.6,
+    },
+  },
+  autoPilot: {
+    forwardLead: 8,
+    lookAhead: 24,
+  },
+  collision: {
+    safetyRadius: 2.8,
+    padding: 3.5,
+  },
 };

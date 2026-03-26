@@ -1,18 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useScroll, useSpring, useTransform, useMotionValueEvent } from 'motion/react';
 import { Canvas } from '@react-three/fiber';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { 
   ChevronRight, Download, Rocket, Code, Briefcase, 
   History, Heart, Mail, Github, Linkedin, ExternalLink,
   Cpu, Database, Globe, Smartphone, Brain, Layers,
   Apple, Server, GraduationCap, Phone, Send, CheckCircle2,
-  Terminal, Monitor, Sparkles, Zap, Shield, MousePointer2,
+  Terminal, Monitor, Sparkles, Zap, Shield, MousePointer2, Instagram, BookOpen,
   Menu as MenuIcon, X
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore';
 import { PORTFOLIO_DATA } from '../../constants/portfolioData';
 import { PortfolioBackgroundShip } from '../game/PortfolioBackgroundShip';
+import { ShipModel } from '../game/ShipModel';
+import gitlabIcon from '../../assets/img/gitlab.svg';
+import mediumIcon from '../../assets/img/medium.svg';
 
 const IconMap: Record<string, React.ReactNode> = {
   smartphone: <Smartphone size={20} />,
@@ -24,20 +28,172 @@ const IconMap: Record<string, React.ReactNode> = {
 };
 
 const TechStack = [
-  "Kotlin", "Java", "Compose UI", "React Native", "Swift", "React.js", "Ktor", "Django", "Firebase", "SQL", "Python", "AI/ML"
+  "Python", "AI/ML", "Generative AI", "LLM Workflows", "Prompt Engineering", "AWS", "Firebase", "Ktor", "Django", "OpenCV", "MediaPipe", "SQL"
 ];
 
+const currentProjectTitles = ['Jewel Vault', 'Tool Detection & Monitoring Software', 'Vision Gesture Command System'];
+const currentProjects = PORTFOLIO_DATA.projects.filter((project) => currentProjectTitles.includes(project.title));
+const featuredProject = currentProjects.find((project) => project.title === 'Jewel Vault') ?? currentProjects[0] ?? PORTFOLIO_DATA.projects[0];
+
+const getEmbeddedVideoUrl = (url?: string) => {
+  if (!url) return '';
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.includes('youtu.be')) {
+      const videoId = parsed.pathname.replace('/', '');
+      return `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1`;
+    }
+    if (parsed.pathname.includes('/shorts/')) {
+      const videoId = parsed.pathname.split('/shorts/')[1];
+      return `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1`;
+    }
+    if (parsed.hostname.includes('youtube.com')) {
+      const videoId = parsed.searchParams.get('v');
+      if (videoId) {
+        return `https://www.youtube.com/embed/${videoId}?rel=0&modestbranding=1`;
+      }
+    }
+  } catch {
+    return '';
+  }
+
+  return '';
+};
+
+const getSocialIcon = (platform: string) => {
+  switch (platform) {
+    case 'Github':
+      return <Github size={28} />;
+    case 'Linkedin':
+      return <Linkedin size={28} />;
+    case 'Instagram':
+      return <Instagram size={28} />;
+    case 'Gitlab':
+      return <img src={gitlabIcon} alt="GitLab" className="h-7 w-7 invert" />;
+    case 'Medium':
+      return <img src={mediumIcon} alt="Medium" className="h-7 w-7 invert" />;
+    default:
+      return <ExternalLink size={28} />;
+  }
+};
+
+const OrbitingShipButton = ({
+  label,
+  onClick,
+  className,
+}: {
+  label: string;
+  onClick: () => void;
+  className: string;
+}) => {
+  const rotationVelocity = useRef(new THREE.Vector2(0.06, -0.04));
+  const strafeVelocity = useRef(new THREE.Vector2(0.04, 0.02));
+
+  return (
+    <div className="relative inline-flex shrink-0 items-center pl-8">
+      <motion.div
+        className="pointer-events-none absolute left-0 top-1/2 z-20 -translate-y-1/2"
+        animate={{ y: ['-50%', '-58%', '-50%'] }}
+        transition={{ duration: 2.8, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <div className="relative h-11 w-11">
+          <motion.div
+            className="absolute left-6 top-1/2 h-1.5 w-8 -translate-y-1/2 rounded-full bg-gradient-to-r from-[#ffd54a]/90 via-[#ffb800]/60 to-transparent blur-[3px]"
+            animate={{ opacity: [0.45, 0.9, 0.45], scaleX: [0.9, 1.1, 0.9] }}
+            transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <Canvas camera={{ position: [0, 0, 12], fov: 28 }}>
+            <ambientLight intensity={1.8} />
+            <pointLight position={[8, 6, 10]} intensity={12} color="#00ffff" />
+            <pointLight position={[-6, 0, -4]} intensity={8} color="#ffd54a" />
+            <group rotation={[0.2, Math.PI * 1.08, 0]} scale={0.72}>
+              <ShipModel
+                thrustIntensity={0.55}
+                boostIntensity={0.9}
+                rotationVelocity={rotationVelocity.current}
+                strafeVelocity={strafeVelocity.current}
+                shipHealth={100}
+              />
+            </group>
+          </Canvas>
+        </div>
+      </motion.div>
+
+      <motion.button
+        onClick={onClick}
+        whileHover={{ scale: 1.02 }}
+        className={className}
+      >
+        <Rocket size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+        {label}
+      </motion.button>
+    </div>
+  );
+};
+
+const ShipPreview = ({
+  modelId,
+  active,
+  onClick,
+}: {
+  modelId: 'spacy' | 'scipio';
+  active: boolean;
+  onClick: () => void;
+}) => {
+  const rotationVelocity = useRef(new THREE.Vector2(0.03, -0.02));
+  const strafeVelocity = useRef(new THREE.Vector2(0.02, 0.01));
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative h-20 w-[5.5rem] shrink-0 overflow-hidden bg-transparent transition-transform"
+      title={`Use ${modelId} ship`}
+    >
+      <div className={`pointer-events-none absolute inset-x-2 inset-y-3 rounded-[16px] blur-lg transition-opacity ${active ? 'bg-[#ffd54a]/32 opacity-100' : 'bg-[#ffd54a]/14 opacity-70'}`} />
+      <Canvas camera={{ position: [0, 0, 12], fov: 28 }}>
+        <ambientLight intensity={1.6} />
+        <pointLight position={[7, 6, 10]} intensity={10} color="#00ffff" />
+        <pointLight position={[-6, 0, -4]} intensity={6} color="#ffd54a" />
+        <group rotation={[0.18, Math.PI * 1.06, 0]} scale={0.7}>
+          <ShipModel
+            thrustIntensity={0.45}
+            boostIntensity={active ? 0.85 : 0.45}
+            rotationVelocity={rotationVelocity.current}
+            strafeVelocity={strafeVelocity.current}
+            shipHealth={100}
+            modelIdOverride={modelId}
+          />
+        </group>
+      </Canvas>
+      <span className={`absolute inset-x-0 bottom-0.5 text-center text-[8px] font-black uppercase tracking-[0.14em] ${active ? 'text-[#00ffff]' : 'text-white/80'}`}>
+        {modelId}
+      </span>
+    </button>
+  );
+};
+
 export const PortfolioLanding = () => {
-  const { setStatus } = useGameStore();
+  const { setStatus, shipModelId, setShipModelId } = useGameStore();
   const [activeSection, setActiveSection] = useState('home');
+  const [activeProjectTab, setActiveProjectTab] = useState<'web' | 'mobile' | 'aiml'>('web');
   const [scrolled, setScrolled] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [contactForm, setContactForm] = useState({
+    fullName: '',
+    email: '',
+    message: '',
+  });
   const mouse = useRef(new THREE.Vector2(0, 0));
   const scrollRef = useRef(0);
   const { scrollY } = useScroll();
   const { scrollYProgress } = useScroll();
   const smoothScroll = useSpring(scrollYProgress, { stiffness: 100, damping: 30, restDelta: 0.001 });
+  const backgroundScrollY = useTransform(smoothScroll, [0, 1], ['-1%', '6%']);
+  const backgroundMouseX = useSpring(0, { stiffness: 60, damping: 20, mass: 0.8 });
+  const backgroundMouseY = useSpring(0, { stiffness: 60, damping: 20, mass: 0.8 });
 
   // Header visibility logic
   useMotionValueEvent(scrollY, "change", (latest) => {
@@ -76,10 +232,12 @@ export const PortfolioLanding = () => {
     const handleMouseMove = (e: MouseEvent) => {
       mouse.current.x = (e.clientX / window.innerWidth) * 2 - 1;
       mouse.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      backgroundMouseX.set(mouse.current.x * 14);
+      backgroundMouseY.set(-mouse.current.y * 10);
     };
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
+  }, [backgroundMouseX, backgroundMouseY]);
 
   const scrollTo = (id: string) => {
     const element = document.getElementById(id);
@@ -100,32 +258,95 @@ export const PortfolioLanding = () => {
     setStatus('loading');
   };
 
+  const handleContactSubmit = () => {
+    if (!contactForm.fullName.trim() || !contactForm.email.trim() || !contactForm.message.trim()) {
+      window.alert('Fill in name, email, and message first.');
+      return;
+    }
+
+    const subject = encodeURIComponent(`Portfolio inquiry from ${contactForm.fullName}`);
+    const body = encodeURIComponent(
+      `Name: ${contactForm.fullName}\nEmail: ${contactForm.email}\n\nMessage:\n${contactForm.message}`
+    );
+    const mailtoUrl = `mailto:${PORTFOLIO_DATA.contact.email}?subject=${subject}&body=${body}`;
+    window.location.href = mailtoUrl;
+  };
+
+  const handleWhatsAppContact = () => {
+    if (!contactForm.fullName.trim() || !contactForm.email.trim() || !contactForm.message.trim()) {
+      window.alert('Fill in name, email, and message first.');
+      return;
+    }
+
+    const phone = PORTFOLIO_DATA.contact.mobile.replace(/[^\d]/g, '');
+    const message = encodeURIComponent(
+      `Hello Rajesh,\n\nName: ${contactForm.fullName}\nEmail: ${contactForm.email}\n\nMessage:\n${contactForm.message}`
+    );
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank', 'noopener,noreferrer');
+  };
+
+  const otherProjects = PORTFOLIO_DATA.projects.filter((project) => !currentProjectTitles.includes(project.title));
+  const projectTabs = {
+    web: otherProjects.filter((project) => project.tags.includes('Web')),
+    mobile: otherProjects.filter((project) => project.tags.includes('Android') || project.tags.includes('iOS') || project.tags.includes('Architecture') || project.tags.includes('Play Store')),
+    aiml: otherProjects.filter((project) =>
+      project.tags.includes('AI') ||
+      project.tags.includes('ML') ||
+      project.tags.includes('Python') ||
+      project.tags.includes('Computer Vision') ||
+      project.tags.includes('Monitoring') ||
+      project.tags.includes('Django') ||
+      project.tags.includes('Backend') ||
+      project.tags.includes('Ktor') ||
+      project.tags.includes('System Design')
+    )
+  };
+
   return (
     <div className="relative min-h-screen bg-[#020205] text-white font-sans selection:bg-[#00ffff] selection:text-black overflow-x-hidden">
       {/* --- BACKGROUND SHIP LAYER --- */}
-      <div className="fixed inset-0 z-0 pointer-events-none opacity-60">
+      <div className="fixed inset-0 z-10 pointer-events-none opacity-100">
         <Canvas camera={{ position: [0, 0, 15], fov: 45 }}>
-          <ambientLight intensity={0.8} />
-          <pointLight position={[10, 10, 10]} intensity={2} color="#00ffff" />
+          <ambientLight intensity={1.05} />
+          <pointLight position={[10, 10, 10]} intensity={2.8} color="#00ffff" />
+          <pointLight position={[-16, -10, 8]} intensity={3} color="#00ffff" distance={44} />
+          <pointLight position={[16, -10, 8]} intensity={3} color="#ffd54a" distance={44} />
           <PortfolioBackgroundShip mouse={mouse} scroll={scrollRef} />
+          <EffectComposer>
+            <Bloom intensity={0.18} luminanceThreshold={0.55} luminanceSmoothing={0.9} />
+          </EffectComposer>
         </Canvas>
       </div>
 
       {/* --- BACKGROUND EFFECTS --- */}
-      <div className="fixed inset-0 pointer-events-none z-[1]">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,255,255,0.03)_0%,transparent_70%)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(0,255,255,0.01),rgba(0,0,0,0),rgba(0,255,255,0.01))] bg-[length:100%_4px,4px_100%]" />
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <motion.div
+          className="absolute -inset-[8%] opacity-100"
+          style={{
+            backgroundImage: "url('/textures/space/milky_way.jpg')",
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            backgroundSize: 'cover',
+            x: backgroundMouseX,
+            y: backgroundMouseY,
+            translateY: backgroundScrollY,
+          }}
+        />
+        <div className="absolute right-[15%] top-[18%] h-[46vh] w-[36vw] rounded-full bg-[radial-gradient(circle,rgba(2,2,5,0.52)_0%,rgba(2,2,5,0.28)_42%,rgba(2,2,5,0)_78%)] blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(2,2,5,0)_0%,rgba(2,2,5,0.12)_72%,rgba(2,2,5,0.28)_100%)]" />
         
         {/* Animated accent glow */}
         <motion.div 
           animate={{ 
-            opacity: [0.1, 0.2, 0.1],
+            opacity: [0.04, 0.08, 0.04],
             scale: [1, 1.1, 1],
           }}
           transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
           className="absolute top-1/4 -left-1/4 w-[50%] h-[50%] bg-[#00ffff]/5 blur-[120px] rounded-full"
         />
       </div>
+
+      <div className="relative z-20">
 
       {/* --- NAVIGATION --- */}
       <motion.nav 
@@ -164,14 +385,13 @@ export const PortfolioLanding = () => {
           </div>
 
           <div className="flex items-center gap-4">
-            <motion.button
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              onClick={handleStartGame}
-              className="hidden md:block px-6 py-2 bg-[#00ffff] text-black text-[10px] font-black uppercase tracking-widest rounded hover:bg-white transition-all shadow-[0_0_20px_rgba(0,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] active:scale-95"
-            >
-              {PORTFOLIO_DATA.ctas.start}
-            </motion.button>
+            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="hidden md:block">
+              <OrbitingShipButton
+                label={PORTFOLIO_DATA.ctas.start}
+                onClick={handleStartGame}
+                className="group relative z-10 px-6 py-2 bg-[#00ffff] text-black text-[10px] font-black uppercase tracking-widest rounded hover:bg-white transition-all shadow-[0_0_20px_rgba(0,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] active:scale-95 flex items-center gap-2"
+              />
+            </motion.div>
 
             {/* Mobile Menu Toggle */}
             <button 
@@ -217,7 +437,7 @@ export const PortfolioLanding = () => {
       {/* --- HERO SECTION --- */}
       <section id="home" className="relative min-h-screen flex items-center pt-20 px-8 overflow-hidden">
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center relative z-10">
-          <div className="space-y-10">
+          <div className="space-y-5">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -267,7 +487,7 @@ export const PortfolioLanding = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.4 }}
-              className="flex flex-wrap gap-x-6 gap-y-3 py-6 border-t border-white/5"
+              className="flex flex-wrap gap-x-6 gap-y-2 py-3 border-t border-white/5"
             >
               {TechStack.map((tech, i) => (
                 <span key={tech} className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 hover:text-[#00ffff] transition-colors cursor-default">
@@ -280,19 +500,32 @@ export const PortfolioLanding = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="flex flex-wrap gap-4"
+              className="flex items-center gap-0.5 pt-0.5 sm:gap-1"
             >
-              <button className="px-8 py-4 bg-white text-black font-black uppercase tracking-widest text-xs rounded flex items-center gap-3 hover:bg-[#00ffff] transition-all group shadow-xl">
-                <Download size={18} />
-                {PORTFOLIO_DATA.ctas.resume}
-              </button>
-              <button 
-                onClick={handleStartGame}
-                className="px-8 py-4 bg-transparent border border-white/20 font-black uppercase tracking-widest text-xs rounded flex items-center gap-3 hover:border-[#00ffff] hover:text-[#00ffff] transition-all group"
+              <a
+                href={PORTFOLIO_DATA.resumeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 px-5 py-3.5 bg-white text-black font-black uppercase tracking-[0.16em] text-[11px] rounded flex items-center gap-2.5 hover:bg-[#00ffff] transition-all group shadow-xl"
               >
-                <Rocket size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                {PORTFOLIO_DATA.ctas.start}
-              </button>
+                <Download size={13} />
+                {PORTFOLIO_DATA.ctas.resume}
+              </a>
+              <OrbitingShipButton
+                label={PORTFOLIO_DATA.ctas.start}
+                onClick={handleStartGame}
+                className="group relative z-10 shrink-0 px-5 py-3.5 bg-transparent border border-white/20 font-black uppercase tracking-[0.16em] text-[11px] rounded flex items-center gap-2.5 hover:border-[#00ffff] hover:text-[#00ffff] transition-all"
+              />
+              <ShipPreview
+                modelId="spacy"
+                active={shipModelId === 'spacy'}
+                onClick={() => setShipModelId('spacy')}
+              />
+              <ShipPreview
+                modelId="scipio"
+                active={shipModelId === 'scipio'}
+                onClick={() => setShipModelId('scipio')}
+              />
             </motion.div>
           </div>
 
@@ -310,10 +543,9 @@ export const PortfolioLanding = () => {
               {/* Main Image Block */}
               <div className="relative w-full h-full bg-[#111] rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
                 <img 
-                  src="https://picsum.photos/seed/rajesh/800/1000" 
+                  src={PORTFOLIO_DATA.heroImage} 
                   alt="Rajesh Khan"
                   className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-1000 group-hover:scale-105"
-                  referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                 
@@ -322,11 +554,11 @@ export const PortfolioLanding = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-[10px] font-black uppercase tracking-widest text-[#00ffff]">Experience</div>
-                      <div className="text-xl font-black italic">4+ YEARS</div>
+                      <div className="text-xl font-black italic">{PORTFOLIO_DATA.experienceSummary}</div>
                     </div>
                     <div className="text-right">
                       <div className="text-[10px] font-black uppercase tracking-widest text-white/40">Location</div>
-                      <div className="text-sm font-bold">UST, India</div>
+                      <div className="text-sm font-bold">{PORTFOLIO_DATA.location}</div>
                     </div>
                   </div>
                 </div>
@@ -352,7 +584,7 @@ export const PortfolioLanding = () => {
         </div>
       </section>
 
-      {/* --- FEATURED PROJECT: JEWEL VAULT --- */}
+      {/* --- CURRENT PROJECTS --- */}
       <section className="py-32 px-8 relative overflow-hidden">
         <div className="max-w-7xl mx-auto">
           <motion.div 
@@ -369,37 +601,44 @@ export const PortfolioLanding = () => {
               <div className="space-y-8">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full text-amber-500 text-[10px] font-black uppercase tracking-widest">
                   <Sparkles size={12} />
-                  Featured Project
+                  Current Projects
                 </div>
                 <h2 className="text-5xl md:text-7xl font-black tracking-tighter uppercase italic leading-none">
-                  Jewel <span className="text-[#00ffff]">Vault</span>
+                  {featuredProject.title.split(' ')[0]} <span className="text-[#00ffff]">{featuredProject.title.split(' ').slice(1).join(' ')}</span>
                 </h2>
                 <p className="text-xl text-white/60 leading-relaxed">
-                  A high-security inventory management ecosystem for the jewelry industry. Built with Kotlin and Jetpack Compose, focusing on real-time tracking, valuation analytics, and seamless customer workflows.
+                  {featuredProject.description}
                 </p>
                 <div className="flex flex-wrap gap-3">
-                  {["Kotlin", "Compose", "REST API", "Firebase", "Clean Architecture"].map(tag => (
+                  {featuredProject.tags.map(tag => (
                     <span key={tag} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-white/40">
                       {tag}
                     </span>
                   ))}
                 </div>
                 <div className="flex gap-4 pt-4">
-                  <button className="px-8 py-4 bg-[#00ffff] text-black font-black uppercase tracking-widest text-xs rounded-xl hover:bg-white transition-all">
-                    View Case Study
-                  </button>
-                  <button className="p-4 bg-white/5 border border-white/10 rounded-xl hover:text-[#00ffff] transition-all">
-                    <Github size={20} />
-                  </button>
+                  {featuredProject.liveUrl ? (
+                    <a href={featuredProject.liveUrl} target="_blank" rel="noopener noreferrer" className="px-8 py-4 bg-[#00ffff] text-black font-black uppercase tracking-widest text-xs rounded-xl hover:bg-white transition-all">
+                      View Project
+                    </a>
+                  ) : (
+                    <div className="px-8 py-4 bg-white/5 text-white/40 font-black uppercase tracking-widest text-xs rounded-xl border border-white/10">
+                      Private Project
+                    </div>
+                  )}
+                  {featuredProject.repoUrl ? (
+                    <a href={featuredProject.repoUrl} target="_blank" rel="noopener noreferrer" className="p-4 bg-white/5 border border-white/10 rounded-xl hover:text-[#00ffff] transition-all">
+                      <Github size={20} />
+                    </a>
+                  ) : null}
                 </div>
               </div>
               <div className="relative">
                 <div className="aspect-video rounded-2xl overflow-hidden border border-white/10 shadow-2xl transform group-hover:scale-[1.02] transition-transform duration-700">
                   <img 
-                    src="https://picsum.photos/seed/jewel/1200/800" 
-                    alt="Jewel Vault"
+                    src={featuredProject.image} 
+                    alt={featuredProject.title}
                     className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
                   />
                 </div>
                 {/* Decorative UI elements */}
@@ -407,6 +646,74 @@ export const PortfolioLanding = () => {
               </div>
             </div>
           </motion.div>
+
+          {currentProjects.length > 1 && (
+            <div className="grid md:grid-cols-2 gap-8 mt-10">
+              {currentProjects
+                .filter((project) => project.title !== featuredProject.title)
+                .map((project, i) => (
+                  <motion.div
+                    key={project.title}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: i * 0.08 }}
+                    className="group relative flex flex-col bg-white/2 border border-white/10 rounded-[32px] overflow-hidden hover:border-[#00ffff]/30 transition-all hover:-translate-y-2"
+                  >
+                    <div className="aspect-[16/9] overflow-hidden relative bg-black">
+                      {getEmbeddedVideoUrl(project.videoUrl || project.liveUrl) ? (
+                        <iframe
+                          src={getEmbeddedVideoUrl(project.videoUrl || project.liveUrl)}
+                          title={`${project.title} demo`}
+                          className="h-full w-full"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                          loading="lazy"
+                          referrerPolicy="strict-origin-when-cross-origin"
+                        />
+                      ) : (
+                        <img
+                          src={project.image}
+                          alt={project.title}
+                          className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
+                        />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-50 pointer-events-none" />
+                      <div className="absolute top-6 right-6">
+                        <span className="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                          {project.status}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-7 space-y-4">
+                      <div className="flex flex-wrap gap-2">
+                        {project.tags.map((tag) => (
+                          <span key={tag} className="text-[10px] font-black uppercase tracking-widest text-[#00ffff]/60">#{tag}</span>
+                        ))}
+                      </div>
+                      <h3 className="text-2xl font-black tracking-tight uppercase italic">{project.title}</h3>
+                      <p className="text-white/50 text-sm leading-relaxed">{project.description}</p>
+                      <div className="flex gap-3 pt-5 border-t border-white/5">
+                        {project.liveUrl ? (
+                          <a href={project.liveUrl} target="_blank" rel="noopener noreferrer" className="flex-1 py-3 bg-white/5 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-[#00ffff] hover:text-black transition-all flex items-center justify-center gap-2">
+                            <ExternalLink size={14} /> View Details
+                          </a>
+                        ) : (
+                          <div className="flex-1 py-3 bg-white/5 text-white/30 font-black uppercase tracking-widest text-[10px] rounded-xl border border-white/10 flex items-center justify-center gap-2">
+                            <ExternalLink size={14} /> Private
+                          </div>
+                        )}
+                        {project.repoUrl ? (
+                          <a href={project.repoUrl} target="_blank" rel="noopener noreferrer" className="p-3 bg-white/5 text-white rounded-xl hover:bg-white hover:text-black transition-all">
+                            <Github size={18} />
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -420,7 +727,7 @@ export const PortfolioLanding = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {PORTFOLIO_DATA.skills.map((skill, i) => (
               <motion.div
                 key={i}
@@ -428,18 +735,18 @@ export const PortfolioLanding = () => {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.05 }}
-                className="p-10 bg-gradient-to-br from-white/5 to-transparent border border-white/10 rounded-3xl hover:border-[#00ffff]/50 transition-all group relative overflow-hidden"
+                className="p-7 bg-gradient-to-br from-white/5 to-transparent border border-white/10 rounded-3xl hover:border-[#00ffff]/50 transition-all group relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
                   {IconMap[skill.icon]}
                 </div>
-                <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center mb-8 group-hover:bg-[#00ffff]/10 group-hover:scale-110 transition-all">
+                <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center mb-5 group-hover:bg-[#00ffff]/10 group-hover:scale-110 transition-all">
                   <span className="text-[#00ffff]">{IconMap[skill.icon]}</span>
                 </div>
-                <h3 className="text-2xl font-black tracking-tight mb-6 uppercase italic">{skill.category}</h3>
-                <div className="flex flex-wrap gap-3">
+                <h3 className="text-xl font-black tracking-tight mb-4 uppercase italic">{skill.category}</h3>
+                <div className="flex flex-wrap gap-2">
                   {skill.items.map(item => (
-                    <span key={item} className="px-4 py-2 bg-white/5 text-white/60 text-[10px] font-black rounded-xl uppercase tracking-widest border border-white/5 group-hover:border-white/20 transition-colors">
+                    <span key={item} className="px-3 py-1.5 bg-white/5 text-white/60 text-[9px] font-black rounded-xl uppercase tracking-widest border border-white/5 group-hover:border-white/20 transition-colors">
                       {item}
                     </span>
                   ))}
@@ -458,13 +765,30 @@ export const PortfolioLanding = () => {
               <h2 className="text-5xl md:text-7xl font-black tracking-tighter uppercase italic leading-none">Other <span className="text-[#00ffff]">Missions</span></h2>
               <p className="text-white/40 max-w-xl text-lg">A selection of my recent work, ranging from complex Android libraries to AI-driven applications.</p>
             </div>
-            <button className="text-[#00ffff] text-xs font-black tracking-[0.3em] uppercase flex items-center gap-3 hover:gap-6 transition-all group">
-              Full Archive <ChevronRight size={20} className="group-hover:translate-x-2 transition-transform" />
-            </button>
+            <div className="relative z-20 flex flex-wrap gap-3 pointer-events-auto">
+              {([
+                { id: 'web', label: 'Web' },
+                { id: 'mobile', label: 'Mobile' },
+                { id: 'aiml', label: 'AI/ML' }
+              ] as const).map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveProjectTab(tab.id)}
+                  type="button"
+                  className={`px-5 py-3 rounded-xl border text-[10px] font-black tracking-[0.3em] uppercase transition-all ${
+                    activeProjectTab === tab.id
+                      ? 'bg-[#00ffff] text-black border-[#00ffff]'
+                      : 'bg-white/5 text-white/50 border-white/10 hover:border-[#00ffff]/40 hover:text-[#00ffff]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-10">
-            {PORTFOLIO_DATA.projects.filter(p => p.title !== 'Jewel Vault').map((project, i) => (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {projectTabs[activeProjectTab].map((project, i) => (
               <motion.div 
                 key={i}
                 initial={{ opacity: 0, y: 20 }}
@@ -472,12 +796,11 @@ export const PortfolioLanding = () => {
                 viewport={{ once: true }}
                 className="group relative flex flex-col bg-white/2 border border-white/10 rounded-[32px] overflow-hidden hover:border-[#00ffff]/30 transition-all hover:-translate-y-2"
               >
-                <div className="aspect-[4/3] overflow-hidden relative">
+                <div className="aspect-[16/10] overflow-hidden relative">
                   <img 
                     src={project.image} 
                     alt={project.title} 
                     className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
-                    referrerPolicy="no-referrer"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />
                   <div className="absolute top-6 right-6">
@@ -486,21 +809,34 @@ export const PortfolioLanding = () => {
                     </span>
                   </div>
                 </div>
-                <div className="p-10 space-y-6 flex-grow flex flex-col relative">
+                <div className="p-7 space-y-4">
                   <div className="flex flex-wrap gap-2">
                     {project.tags.map(tag => (
                       <span key={tag} className="text-[10px] font-black uppercase tracking-widest text-[#00ffff]/60">#{tag}</span>
                     ))}
                   </div>
-                  <h3 className="text-3xl font-black tracking-tight uppercase italic">{project.title}</h3>
-                  <p className="text-white/50 text-base leading-relaxed flex-grow">{project.description}</p>
-                  <div className="flex gap-4 pt-8 border-t border-white/5">
-                    <button className="flex-1 py-3 bg-white/5 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-[#00ffff] hover:text-black transition-all flex items-center justify-center gap-2">
-                      <ExternalLink size={14} /> Demo
-                    </button>
-                    <button className="p-3 bg-white/5 text-white rounded-xl hover:bg-white hover:text-black transition-all">
-                      <Github size={18} />
-                    </button>
+                  <h3 className="text-2xl font-black tracking-tight uppercase italic">{project.title}</h3>
+                  <p className="text-white/50 text-sm leading-relaxed">{project.description}</p>
+                  <div className="flex gap-3 pt-5 border-t border-white/5">
+                    {project.liveUrl ? (
+                      <a href={project.liveUrl} target="_blank" rel="noopener noreferrer" className="flex-1 py-3 bg-white/5 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-[#00ffff] hover:text-black transition-all flex items-center justify-center gap-2">
+                        <ExternalLink size={14} /> Live
+                      </a>
+                    ) : (
+                      <div className="flex-1 py-3 bg-white/5 text-white/30 font-black uppercase tracking-widest text-[10px] rounded-xl border border-white/10 flex items-center justify-center gap-2">
+                        <ExternalLink size={14} /> Private
+                      </div>
+                    )}
+                    {project.videoUrl ? (
+                      <a href={project.videoUrl} target="_blank" rel="noopener noreferrer" className="p-3 bg-white/5 text-white rounded-xl hover:bg-white hover:text-black transition-all">
+                        <Monitor size={18} />
+                      </a>
+                    ) : null}
+                    {project.repoUrl ? (
+                      <a href={project.repoUrl} target="_blank" rel="noopener noreferrer" className="p-3 bg-white/5 text-white rounded-xl hover:bg-white hover:text-black transition-all">
+                        <Github size={18} />
+                      </a>
+                    ) : null}
                   </div>
                 </div>
               </motion.div>
@@ -602,9 +938,9 @@ export const PortfolioLanding = () => {
                   </div>
                 </div>
                 <p className="text-white/50 text-sm leading-relaxed">{item.description}</p>
-                <button className="text-[#00ffff] text-[10px] font-black tracking-widest uppercase flex items-center gap-2 hover:gap-4 transition-all">
+                <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[#00ffff] text-[10px] font-black tracking-widest uppercase flex items-center gap-2 hover:gap-4 transition-all">
                   View Repo <ChevronRight size={14} />
-                </button>
+                </a>
               </motion.div>
             ))}
           </div>
@@ -612,8 +948,8 @@ export const PortfolioLanding = () => {
       </div>
 
       {/* --- FOOTER / CONNECT --- */}
-      <footer id="connect" className="py-32 px-8 border-t border-white/5 relative overflow-hidden bg-black/40">
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-24 relative z-10">
+      <footer id="connect" className="py-24 px-8 border-t border-white/5 relative overflow-hidden bg-black/40">
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-end relative z-10">
           <div className="space-y-16">
             <div className="space-y-6">
               <h2 className="text-7xl md:text-9xl font-black tracking-tighter uppercase italic leading-[0.85]">
@@ -624,17 +960,17 @@ export const PortfolioLanding = () => {
               </p>
             </div>
             
-            <div className="grid md:grid-cols-2 gap-8">
-              <a href={`mailto:${PORTFOLIO_DATA.contact.email}`} className="p-8 bg-white/5 border border-white/10 rounded-[32px] space-y-4 hover:border-[#00ffff]/50 transition-all group">
+            <div className="grid md:grid-cols-2 gap-5">
+              <a href={`mailto:${PORTFOLIO_DATA.contact.email}`} className="p-5 bg-white/5 border border-white/10 rounded-[28px] space-y-3 hover:border-[#00ffff]/50 transition-all group min-w-0">
                 <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center text-white/40 group-hover:bg-[#00ffff]/10 group-hover:text-[#00ffff] transition-all">
                   <Mail size={24} />
                 </div>
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-widest text-white/40">Email Me</div>
-                  <div className="text-lg font-black italic">{PORTFOLIO_DATA.contact.email}</div>
+                  <div className="text-base font-black italic break-all">{PORTFOLIO_DATA.contact.email}</div>
                 </div>
               </a>
-              <a href={`tel:${PORTFOLIO_DATA.contact.mobile}`} className="p-8 bg-white/5 border border-white/10 rounded-[32px] space-y-4 hover:border-[#00ffff]/50 transition-all group">
+              <a href={`tel:${PORTFOLIO_DATA.contact.mobile}`} className="p-5 bg-white/5 border border-white/10 rounded-[28px] space-y-3 hover:border-[#00ffff]/50 transition-all group">
                 <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center text-white/40 group-hover:bg-[#00ffff]/10 group-hover:text-[#00ffff] transition-all">
                   <Phone size={24} />
                 </div>
@@ -654,7 +990,7 @@ export const PortfolioLanding = () => {
                   rel="noopener noreferrer"
                   className="w-16 h-16 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-white/40 hover:bg-[#00ffff] hover:text-black transition-all hover:-translate-y-2"
                 >
-                  {social.platform === 'Github' ? <Github size={28} /> : <Linkedin size={28} />}
+                  {getSocialIcon(social.platform)}
                 </a>
               ))}
             </div>
@@ -664,36 +1000,65 @@ export const PortfolioLanding = () => {
             initial={{ opacity: 0, scale: 0.95 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}
-            className="p-12 bg-gradient-to-br from-white/10 to-transparent rounded-[48px] border border-white/10 space-y-10 backdrop-blur-2xl shadow-2xl relative"
+            className="self-end p-8 bg-gradient-to-br from-white/10 to-transparent rounded-[40px] border border-white/10 space-y-6 backdrop-blur-2xl shadow-2xl relative"
           >
             <div className="absolute top-0 right-0 p-8 opacity-10">
               <Send size={100} className="text-[#00ffff]" />
             </div>
             
-            <div className="space-y-8 relative z-10">
-              <div className="grid md:grid-cols-2 gap-8">
+            <div className="space-y-6 relative z-10">
+              <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Full Name</label>
-                  <input type="text" className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 focus:border-[#00ffff] outline-none transition-all text-sm font-bold" placeholder="John Doe" />
+                  <input
+                    type="text"
+                    value={contactForm.fullName}
+                    onChange={(e) => setContactForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 focus:border-[#00ffff] outline-none transition-all text-sm font-bold"
+                    placeholder="John Doe"
+                  />
                 </div>
                 <div className="space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Email Address</label>
-                  <input type="email" className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 focus:border-[#00ffff] outline-none transition-all text-sm font-bold" placeholder="john@example.com" />
+                  <input
+                    type="email"
+                    value={contactForm.email}
+                    onChange={(e) => setContactForm((prev) => ({ ...prev, email: e.target.value }))}
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 focus:border-[#00ffff] outline-none transition-all text-sm font-bold"
+                    placeholder="john@example.com"
+                  />
                 </div>
               </div>
               <div className="space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Your Message</label>
-                <textarea className="w-full bg-black/40 border border-white/10 rounded-2xl p-5 h-48 focus:border-[#00ffff] outline-none transition-all text-sm font-bold resize-none" placeholder="Tell me about your project..." />
+                <textarea
+                  value={contactForm.message}
+                  onChange={(e) => setContactForm((prev) => ({ ...prev, message: e.target.value }))}
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 h-32 focus:border-[#00ffff] outline-none transition-all text-sm font-bold resize-none"
+                  placeholder="Tell me about your project..."
+                />
               </div>
-              <button className="w-full py-6 bg-[#00ffff] text-black font-black rounded-2xl uppercase tracking-[0.3em] text-xs hover:bg-white transition-all flex items-center justify-center gap-4 group shadow-[0_0_40px_rgba(0,255,255,0.3)] hover:shadow-[0_0_50px_rgba(255,255,255,0.5)] active:scale-95">
-                Initiate Contact
-                <Send size={18} className="group-hover:translate-x-2 group-hover:-translate-y-2 transition-transform" />
-              </button>
+              <div className="grid md:grid-cols-2 gap-4">
+                <button
+                  onClick={handleWhatsAppContact}
+                  className="w-full py-3.5 bg-[#25D366] text-black font-black rounded-2xl uppercase tracking-[0.3em] text-xs hover:bg-[#3bf07d] transition-all flex items-center justify-center gap-4 group shadow-[0_0_30px_rgba(37,211,102,0.25)] active:scale-95"
+                >
+                  WhatsApp
+                  <Send size={18} className="group-hover:translate-x-2 group-hover:-translate-y-2 transition-transform" />
+                </button>
+                <button
+                  onClick={handleContactSubmit}
+                  className="w-full py-3.5 bg-[#00ffff] text-black font-black rounded-2xl uppercase tracking-[0.3em] text-xs hover:bg-white transition-all flex items-center justify-center gap-4 group shadow-[0_0_40px_rgba(0,255,255,0.3)] hover:shadow-[0_0_50px_rgba(255,255,255,0.5)] active:scale-95"
+                >
+                  Email
+                  <Send size={18} className="group-hover:translate-x-2 group-hover:-translate-y-2 transition-transform" />
+                </button>
+              </div>
             </div>
           </motion.div>
         </div>
 
-        <div className="max-w-7xl mx-auto mt-40 pt-16 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-10 text-[10px] font-black tracking-[0.4em] uppercase text-white/20">
+        <div className="max-w-7xl mx-auto mt-24 pt-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-10 text-[10px] font-black tracking-[0.4em] uppercase text-white/20">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-[#00ffff]/10 rounded-lg flex items-center justify-center">
               <Rocket size={14} className="text-[#00ffff]" />
@@ -706,6 +1071,7 @@ export const PortfolioLanding = () => {
           </div>
         </div>
       </footer>
+      </div>
 
       {/* --- SCROLL INDICATOR --- */}
       <motion.div 

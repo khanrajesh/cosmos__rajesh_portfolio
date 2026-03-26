@@ -1,14 +1,10 @@
-import { useEffect, Suspense, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { Loader } from '@react-three/drei';
-import { SpaceScene } from './components/game/SpaceScene';
-import { HUD } from './components/ui/HUD';
-import { Menu } from './components/ui/Menu';
+import { lazy, useEffect, Suspense, useState } from 'react';
 import { PortfolioLanding } from './components/ui/PortfolioLanding';
 import { useGameStore } from './store/useGameStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { RotateCcw, Home, Loader2, Shield, Zap, Radar, User, FileText, ArrowLeft } from 'lucide-react';
-import { PORTFOLIO_DATA } from './constants/portfolioData';
+
+const GameExperience = lazy(() => import('./components/game/GameExperience'));
 
 const LoadingScreen = () => {
   const { setStatus } = useGameStore();
@@ -200,11 +196,6 @@ const PauseOverlay = () => {
 
 export default function App() {
   const { status, updateSimulationTime, isPaused, setPaused } = useGameStore();
-  const [isReady, setIsReady] = useState(false);
-
-  useEffect(() => {
-    setIsReady(true);
-  }, []);
 
   // Global simulation loop
   useEffect(() => {
@@ -254,30 +245,14 @@ export default function App() {
             transition={{ duration: 1, ease: "easeOut" }}
             className="w-full h-full relative"
           >
-            {isReady && (
-              <Canvas
-                gl={{ antialias: true, alpha: true }}
-                dpr={[1, 2]}
-                camera={{ position: [0, 0, 500], fov: 60, near: 0.1, far: 50000 }}
-              >
-                <Suspense fallback={null}>
-                  <SpaceScene />
-                </Suspense>
-              </Canvas>
-            )}
-            
-            <HUD />
-            <Menu />
+            <Suspense fallback={null}>
+              <GameExperience />
+            </Suspense>
             
             <AnimatePresence>
               {status === 'loading' && <LoadingScreen />}
               {isPaused && <PauseOverlay />}
             </AnimatePresence>
-
-            <Loader />
-            
-            {/* Global Vignette Overlay */}
-            <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]" />
           </motion.div>
         )}
       </AnimatePresence>

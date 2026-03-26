@@ -60,9 +60,11 @@ export const PortfolioBackgroundShip: React.FC<PortfolioBackgroundShipProps> = (
     <group ref={groupRef}>
       <Float speed={1.5} rotationIntensity={0.5} floatIntensity={1}>
         <group ref={shipRef} scale={1.2}>
+          <pointLight position={[-6, 2, -9]} intensity={7.5} color="#6cf6ff" distance={24} decay={1.7} />
+          <pointLight position={[5, -3.5, 6]} intensity={4.2} color="#ffbf6b" distance={22} decay={1.9} />
           <ShipModel 
             thrustIntensity={0.4} 
-            boostIntensity={0} 
+            boostIntensity={0.2} 
             rotationVelocity={new THREE.Vector2(0, 0)}
             strafeVelocity={new THREE.Vector2(0, 0)}
             shipHealth={100}
@@ -70,8 +72,8 @@ export const PortfolioBackgroundShip: React.FC<PortfolioBackgroundShipProps> = (
         </group>
       </Float>
       
-      {/* Subtle engine glow */}
-      <pointLight position={[0, 0, -2]} intensity={1} color="#00ffff" distance={8} />
+      {/* Mild engine glow */}
+      <pointLight position={[0, -0.15, -3.2]} intensity={1.8} color="#6cf6ff" distance={10} decay={2} />
     </group>
   );
 };

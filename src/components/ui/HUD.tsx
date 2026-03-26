@@ -1,20 +1,165 @@
-import { useGameStore, CameraMode, GraphicsQuality, GameMode, WeaponData } from '../../store/useGameStore';
-import { PLANETS, WEAPONS } from '../../constants/gameData';
+import { useGameStore, CameraMode, GraphicsQuality, GameMode, WeaponData, ShipModelId } from '../../store/useGameStore';
+import { PLANETS, WEAPONS, WEAPON_BINDINGS, WEAPON_SYSTEM_TUNING, TARGET_UX_TUNING } from '../../constants/gameData';
 import { motion, AnimatePresence } from 'motion/react';
+import * as THREE from 'three';
 import { 
   Eye, EyeOff, Play, Pause, Navigation, Zap, Radar, BookOpen, Target, 
   Settings, Camera, Monitor, Sliders, X, ChevronRight, Info, 
   RotateCcw, Shield, Crosshair, Globe, Activity, Flame, ZapOff,
-  Dna, Atom, BarChart3, AlertTriangle
+  Dna, Atom, BarChart3, AlertTriangle, type LucideIcon
 } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { AnalysisPanel } from './AnalysisPanel';
+
+const HUD_CONTROL_PANEL_TUNING = {
+  expandedWidth: 320,
+  collapsedWidth: 68,
+  transitionDuration: 0.22,
+  orbitAssistRange: 140,
+  analysisOffset: 336,
+};
+
+type ActionTone = 'neutral' | 'ready' | 'active' | 'warn' | 'locked';
+
+interface TacticalAction {
+  id: string;
+  label: string;
+  detail: string;
+  chip: string;
+  icon: LucideIcon;
+  tone?: ActionTone;
+  active?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+}
+
+interface TacticalSection {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  actions: TacticalAction[];
+}
+
+const getTargetRangeTone = ({
+  hasTarget,
+  isDestroyed,
+  attackInRange,
+  scanOrInspectInRange,
+}: {
+  hasTarget: boolean;
+  isDestroyed: boolean;
+  attackInRange: boolean;
+  scanOrInspectInRange: boolean;
+}): ActionTone => {
+  if (!hasTarget) return 'neutral';
+  if (isDestroyed) return 'locked';
+  if (attackInRange) return 'ready';
+  if (scanOrInspectInRange) return 'warn';
+  return 'neutral';
+};
+
+const getTargetRangeColor = ({
+  isDestroyed,
+  attackInRange,
+  scanOrInspectInRange,
+}: {
+  isDestroyed: boolean;
+  attackInRange: boolean;
+  scanOrInspectInRange: boolean;
+}) => {
+  if (isDestroyed) return TARGET_UX_TUNING.colors.invalid;
+  if (attackInRange) return TARGET_UX_TUNING.colors.inRange;
+  if (scanOrInspectInRange) return TARGET_UX_TUNING.colors.warning;
+  return TARGET_UX_TUNING.colors.neutral;
+};
+
+const actionToneStyles: Record<ActionTone, string> = {
+  neutral: 'border-white/10 bg-white/[0.03] text-white/70',
+  ready: 'border-cyan-400/30 bg-cyan-400/10 text-cyan-200 shadow-[0_0_20px_rgba(34,211,238,0.08)]',
+  active: 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200 shadow-[0_0_20px_rgba(52,211,153,0.08)]',
+  warn: 'border-amber-400/35 bg-amber-400/10 text-amber-200 shadow-[0_0_20px_rgba(251,191,36,0.08)]',
+  locked: 'border-red-400/35 bg-red-400/10 text-red-200 shadow-[0_0_20px_rgba(248,113,113,0.08)]',
+};
+
+const keyChipStyles: Record<ActionTone, string> = {
+  neutral: 'border-white/15 bg-black/40 text-white/65',
+  ready: 'border-cyan-400/35 bg-cyan-400/10 text-cyan-100',
+  active: 'border-emerald-400/35 bg-emerald-400/10 text-emerald-100',
+  warn: 'border-amber-400/35 bg-amber-400/10 text-amber-100',
+  locked: 'border-red-400/35 bg-red-400/10 text-red-100',
+};
+
+const TacticalKeyChip = ({ label, tone = 'neutral' }: { label: string; tone?: ActionTone }) => (
+  <span
+    className={`rounded-md border px-2 py-1 text-[8px] font-bold tracking-[0.28em] uppercase ${keyChipStyles[tone]}`}
+  >
+    {label}
+  </span>
+);
+
+const TacticalActionRow = ({ action }: { action: TacticalAction }) => {
+  const Icon = action.icon;
+  const tone = action.disabled ? 'neutral' : action.tone ?? 'neutral';
+  const content = (
+    <motion.div
+      animate={action.active ? { boxShadow: ['0 0 0 rgba(34,211,238,0.04)', '0 0 22px rgba(34,211,238,0.16)', '0 0 0 rgba(34,211,238,0.04)'] } : { boxShadow: '0 0 0 rgba(0,0,0,0)' }}
+      transition={action.active ? { duration: 1.8, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
+      className={`group flex items-start gap-3 rounded-xl border px-3 py-2.5 transition-all ${actionToneStyles[tone]} ${
+        action.disabled ? 'opacity-50' : ''
+      } ${action.active ? 'scale-[1.01]' : ''} ${action.onClick ? 'hover:border-cyan-300/45 hover:bg-cyan-400/[0.08]' : ''}`}
+    >
+      <div className="mt-0.5 rounded-lg border border-white/10 bg-black/35 p-2">
+        <Icon size={13} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[10px] font-bold tracking-[0.18em] uppercase">{action.label}</span>
+          <TacticalKeyChip label={action.chip} tone={tone} />
+        </div>
+        <div className="mt-1 text-[9px] uppercase tracking-[0.12em] text-white/45">{action.detail}</div>
+      </div>
+    </motion.div>
+  );
+
+  if (!action.onClick) return content;
+
+  return (
+    <button
+      onClick={action.onClick}
+      disabled={action.disabled}
+      className="w-full text-left disabled:cursor-not-allowed"
+    >
+      {content}
+    </button>
+  );
+};
+
+const TacticalSectionCard = ({ section }: { section: TacticalSection }) => {
+  const Icon = section.icon;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-3 backdrop-blur-xl">
+      <div className="mb-3 flex items-center gap-2 border-b border-white/6 pb-2">
+        <div className="rounded-lg border border-cyan-400/20 bg-cyan-400/10 p-1.5 text-cyan-200">
+          <Icon size={12} />
+        </div>
+        <div className="text-[9px] font-bold tracking-[0.28em] text-white/70 uppercase">{section.label}</div>
+      </div>
+      <div className="space-y-2">
+        {section.actions.map((action) => (
+          <TacticalActionRow key={action.id} action={action} />
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export const HUD = () => {
   const { 
     shipVelocity, 
     shipPosition,
     targetPlanetId, 
+    setTarget,
     status, 
     timeScale, 
     setTimeScale, 
@@ -39,6 +184,8 @@ export const HUD = () => {
     setCameraSensitivity,
     zoomSensitivity,
     setZoomSensitivity,
+    shipModelId,
+    setShipModelId,
     debrisIntensity,
     setDebrisIntensity,
     weaponEffectIntensity,
@@ -55,8 +202,10 @@ export const HUD = () => {
     resetCamera,
     weaponMode,
     setWeaponMode,
-    currentWeaponId,
+    activeWeaponSlot,
+    setActiveWeaponSlot,
     setWeapon,
+    weaponCooldowns,
     weaponEnergy,
     isFiring,
     setIsFiring,
@@ -65,6 +214,8 @@ export const HUD = () => {
     planetStates,
     showAnalysisPanel,
     setShowAnalysisPanel,
+    isInspectionMode,
+    setIsInspectionMode,
     shipHealth,
     shipStatus,
     collisionWarning,
@@ -79,6 +230,7 @@ export const HUD = () => {
 
   const [showCodex, setShowCodex] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showTacticalPanel, setShowTacticalPanel] = useState(true);
 
   const criticalPlanets = useMemo(() => {
     return Object.entries(planetStates)
@@ -107,8 +259,107 @@ export const HUD = () => {
   }, [target, shipPosition, simulationTime]);
 
   const speed = Math.round(shipVelocity.length() * 10);
+  const nearestTargetId = useMemo(() => {
+    let nearestPlanetId: string | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    PLANETS.forEach((planet) => {
+      const angle = simulationTime * planet.speed;
+      const planetPosition = new THREE.Vector3(
+        Math.cos(angle) * planet.distance,
+        0,
+        Math.sin(angle) * planet.distance
+      );
+      const planetDistance = shipPosition.distanceTo(planetPosition);
+      if (planetDistance < nearestDistance) {
+        nearestDistance = planetDistance;
+        nearestPlanetId = planet.id;
+      }
+    });
+
+    return nearestPlanetId;
+  }, [shipPosition, simulationTime]);
+
+  useEffect(() => {
+    if (status !== 'playing') return;
+
+    const handleTargetToggle = (event: KeyboardEvent) => {
+      if (event.code !== 'KeyT') return;
+      event.preventDefault();
+
+      if (targetPlanetId) {
+        setTarget(null);
+        return;
+      }
+
+      setTarget(nearestTargetId);
+    };
+
+    window.addEventListener('keydown', handleTargetToggle);
+    return () => window.removeEventListener('keydown', handleTargetToggle);
+  }, [status, targetPlanetId, setTarget, nearestTargetId]);
 
   const isScanned = target && scannedPlanetIds.includes(target.id);
+  const targetState = target ? planetStates[target.id] : null;
+  const isTargetDestroyed = Boolean(targetState?.isDestroyed);
+  const scanInRange = Boolean(target && distance <= TARGET_UX_TUNING.scanRange);
+  const inspectInRange = Boolean(target && distance <= TARGET_UX_TUNING.inspectRange);
+  const attackInRange = Boolean(target && distance <= WEAPON_SYSTEM_TUNING.attackRange);
+  const orbitAssistInRange = Boolean(target && distance <= HUD_CONTROL_PANEL_TUNING.orbitAssistRange);
+  const weaponBindingMap = useMemo(
+    () =>
+      Object.fromEntries(
+        WEAPON_BINDINGS.map((binding) => [
+          binding.slot,
+          {
+            ...binding,
+            weapon: WEAPONS.find((weapon) => weapon.id === binding.weaponId) ?? WEAPONS[0],
+          },
+        ])
+      ) as Record<
+        string,
+        (typeof WEAPON_BINDINGS)[number] & { weapon: (typeof WEAPONS)[number] }
+      >,
+    []
+  );
+  const activeWeaponBinding = weaponBindingMap[activeWeaponSlot];
+  const weaponTargetValid = Boolean(target && !isTargetDestroyed);
+  const targetAttackable = weaponTargetValid && attackInRange;
+  const targetScannable = Boolean(target && scanInRange && !isTargetDestroyed);
+  const targetRangeTone = getTargetRangeTone({
+    hasTarget: Boolean(target),
+    isDestroyed: isTargetDestroyed,
+    attackInRange,
+    scanOrInspectInRange: scanInRange || inspectInRange,
+  });
+  const targetRangeColor = getTargetRangeColor({
+    isDestroyed: isTargetDestroyed,
+    attackInRange,
+    scanOrInspectInRange: scanInRange || inspectInRange,
+  });
+  const weaponRack = useMemo(
+    () =>
+      WEAPON_BINDINGS.map((binding) => {
+        const weapon = weaponBindingMap[binding.slot].weapon;
+        const cooldown = weaponCooldowns[binding.slot];
+        const isActive = activeWeaponSlot === binding.slot;
+        const canFire =
+          weaponMode === 'armed' &&
+          weaponTargetValid &&
+          attackInRange &&
+          cooldown <= 0 &&
+          weaponEnergy >= weapon.energyCost;
+
+        return {
+          ...binding,
+          weapon,
+          cooldown,
+          isActive,
+          canFire,
+        };
+      }),
+    [weaponBindingMap, weaponCooldowns, activeWeaponSlot, weaponMode, weaponTargetValid, attackInRange, weaponEnergy]
+  );
 
   const isRecentlyCollided = simulationTime - lastCollisionTime < 2;
 
@@ -119,13 +370,350 @@ export const HUD = () => {
     return 'transparent';
   }, [collisionWarning, isRecentlyCollided, gravityWarning]);
 
-  if (status !== 'playing') return null;
-
   const cameraModes: { id: CameraMode; label: string }[] = [
     { id: 'pilot', label: 'PILOT' },
     { id: 'explorer', label: 'EXPLORER' },
     { id: 'cinematic', label: 'CINEMATIC' }
   ];
+
+  const targetActionSummary = useMemo(() => {
+    if (!target) {
+      return {
+        title: 'No target locked',
+        detail: 'Select a planet to enable scan, attack, and inspection actions.',
+        tone: 'neutral' as ActionTone,
+        actionChips: ['CLICK TO LOCK'],
+      };
+    }
+
+    if (isTargetDestroyed) {
+      return {
+        title: `${target.name.toUpperCase()} COLLAPSED`,
+        detail: 'Primary target has destabilized. Inspection remains available for debris analysis.',
+        tone: targetRangeTone,
+        actionChips: ['INSPECT', 'ANALYZE'],
+      };
+    }
+
+    const availableActions = [
+      scanInRange ? 'SCAN READY' : 'SCAN OUT',
+      inspectInRange ? 'INSPECT READY' : 'INSPECT OUT',
+      attackInRange ? 'ATTACK READY' : 'ATTACK OUT',
+      orbitAssistInRange ? 'ORBIT READY' : 'ORBIT OUT',
+    ];
+
+    return {
+      title: `${target.name.toUpperCase()} LOCKED`,
+      detail: `${distance} km to target. ${scanInRange || inspectInRange || attackInRange ? 'Action windows available.' : 'Close distance for tactical actions.'}`,
+      tone: targetRangeTone,
+      actionChips: availableActions,
+    };
+  }, [target, isTargetDestroyed, scanInRange, inspectInRange, attackInRange, orbitAssistInRange, distance, targetRangeTone]);
+
+  const tacticalSections = useMemo<TacticalSection[]>(() => {
+    const targetActions: TacticalAction[] = !target
+      ? [
+          {
+            id: 'target-none',
+            label: 'No Target Locked',
+            detail: 'Click a planet in the scene to acquire a tactical focus.',
+            chip: 'CLICK',
+            icon: Target,
+            tone: 'warn',
+          },
+        ]
+      : [
+          {
+            id: 'target-course',
+            label: isAutoPilot ? 'Set Course Engaged' : 'Set Course',
+            detail: attackInRange
+              ? 'Target is close. Manual approach preferred.'
+              : 'Hand navigation to autopilot for target intercept.',
+            chip: 'AUTO',
+            icon: Navigation,
+            tone: isAutoPilot ? 'active' : target ? 'ready' : 'neutral',
+            onClick: () => setAutoPilot(!isAutoPilot),
+          },
+          {
+            id: 'target-scan',
+            label: isScanning ? 'Scanning Target' : 'Scan Target',
+            detail: scanInRange
+              ? isScanning
+                ? `Sensor sweep in progress ${Math.round(scanProgress * 100)}%.`
+                : isScanned
+                  ? 'Planetary data already secured.'
+                  : 'Begin close-range science scan.'
+              : `Move within ${TARGET_UX_TUNING.scanRange} km to scan.`,
+            chip: 'SCAN',
+            icon: Radar,
+            tone: isScanning ? 'active' : scanInRange ? 'ready' : 'warn',
+            active: isScanning,
+            disabled: !scanInRange || isTargetDestroyed,
+            onClick: scanInRange && !isTargetDestroyed ? () => setIsScanning(!isScanning) : undefined,
+          },
+          {
+            id: 'target-inspect',
+            label: isInspectionMode ? 'Inspection Overlay' : 'Inspect Target',
+            detail: inspectInRange
+              ? 'Toggle trajectory and inspection lines for the selected body.'
+              : `Move within ${TARGET_UX_TUNING.inspectRange} km for close inspection.`,
+            chip: 'INSPECT',
+            icon: Eye,
+            tone: isInspectionMode ? 'active' : inspectInRange ? 'ready' : 'warn',
+            active: isInspectionMode,
+            disabled: !inspectInRange,
+            onClick: inspectInRange ? () => setIsInspectionMode(!isInspectionMode) : undefined,
+          },
+          {
+            id: 'target-attack',
+            label: activeWeaponBinding.weapon.name,
+            detail: !weaponTargetValid
+              ? 'Current lock is invalid for weapons.'
+              : attackInRange
+                ? `Use ${activeWeaponBinding.uiChip} to fire.`
+                : `Move within ${WEAPON_SYSTEM_TUNING.attackRange} km to engage.`,
+            chip: activeWeaponBinding.uiChip,
+            icon: Crosshair,
+            tone: !weaponTargetValid ? 'locked' : attackInRange ? 'ready' : 'warn',
+          },
+          {
+            id: 'target-analyze',
+            label: showAnalysisPanel ? 'Analysis Open' : 'Open Analysis',
+            detail: 'Review target status, stability events, and full system telemetry.',
+            chip: 'DATA',
+            icon: Info,
+            tone: showAnalysisPanel ? 'active' : isScanned ? 'ready' : 'neutral',
+            active: showAnalysisPanel,
+            onClick: () => setShowAnalysisPanel(!showAnalysisPanel),
+          },
+        ];
+
+    return [
+      {
+        id: 'navigation',
+        label: 'Navigation',
+        icon: Navigation,
+        actions: [
+          {
+            id: 'nav-flight',
+            label: flightMode === 'precision' ? 'Precision Handling' : 'Cruise Handling',
+            detail: 'Pitch W/S, yaw A/D, roll Q/E.',
+            chip: 'WASD',
+            icon: Navigation,
+            tone: flightMode === 'precision' ? 'active' : 'neutral',
+            onClick: () => setFlightMode(flightMode === 'cruise' ? 'precision' : 'cruise'),
+          },
+          {
+            id: 'nav-thrust',
+            label: isBoosting ? 'Boost Vector' : 'Thrust Vector',
+            detail: 'Space thrust, C reverse, arrows strafe.',
+            chip: 'SPACE',
+            icon: Zap,
+            tone: isBoosting ? 'active' : 'ready',
+          },
+          {
+            id: 'nav-autopilot',
+            label: isAutoPilot ? 'Auto-Pilot Engaged' : 'Auto-Pilot Standby',
+            detail: target ? 'Nav-computer follows the selected target.' : 'Lock a target to get the best autopilot route.',
+            chip: 'AUTO',
+            icon: Navigation,
+            tone: isAutoPilot ? 'active' : target ? 'ready' : 'neutral',
+            onClick: () => setAutoPilot(!isAutoPilot),
+          },
+          {
+            id: 'nav-orbit',
+            label: orbitAssist ? 'Orbit Assist Active' : 'Orbit Assist',
+            detail: target
+              ? orbitAssistInRange
+                ? 'Use stabilized lateral assist near the target.'
+                : `Best within ${HUD_CONTROL_PANEL_TUNING.orbitAssistRange} km.`
+              : 'Requires an active target lock.',
+            chip: 'ORBIT',
+            icon: Globe,
+            tone: orbitAssist ? 'active' : orbitAssistInRange ? 'ready' : 'neutral',
+            onClick: () => setOrbitAssist(!orbitAssist),
+          },
+        ],
+      },
+      {
+        id: 'combat',
+        label: 'Combat / Attack',
+        icon: Crosshair,
+        actions: [
+          {
+            id: 'combat-arm',
+            label: weaponMode === 'armed' ? 'Weapons Hot' : 'Weapons Safe',
+            detail: `${activeWeaponBinding.weapon.name} primed on ${activeWeaponBinding.label.toLowerCase()}.`,
+            chip: weaponMode === 'armed' ? 'ARMED' : 'SAFE',
+            icon: Crosshair,
+            tone: weaponMode === 'armed' ? 'locked' : 'neutral',
+            onClick: () => setWeaponMode(weaponMode === 'armed' ? 'safe' : 'armed'),
+          },
+          {
+            id: 'combat-energy',
+            label: 'Weapon Energy',
+            detail: weaponEnergy > 30 ? 'Capacitors nominal.' : 'Allow recharge before another heavy strike.',
+            chip: `${Math.round(weaponEnergy)}%`,
+            icon: Shield,
+            tone: weaponEnergy > 65 ? 'ready' : weaponEnergy > 30 ? 'neutral' : 'warn',
+          },
+          ...weaponRack.map((binding) => {
+            let tone: ActionTone = 'neutral';
+
+            if (binding.isActive) {
+              tone = isCharging || isFiring ? 'locked' : binding.canFire ? 'active' : 'warn';
+            } else if (binding.canFire) {
+              tone = 'ready';
+            }
+
+            return {
+              id: `combat-${binding.slot}`,
+              label: binding.weapon.name,
+              detail:
+                weaponMode !== 'armed'
+                  ? 'Weapon bus is safe.'
+                  : !weaponTargetValid
+                    ? 'Lock a valid target.'
+                    : !attackInRange
+                      ? `Move within ${WEAPON_SYSTEM_TUNING.attackRange} km.`
+                      : binding.cooldown > 0
+                        ? `Cooldown ${binding.cooldown.toFixed(1)}s remaining.`
+                        : binding.weapon.energyCost > weaponEnergy
+                          ? `Needs ${binding.weapon.energyCost}% energy.`
+                          : `${binding.label} ready to fire.`,
+              chip: binding.uiChip,
+              icon: binding.slot === 'primary' ? Crosshair : binding.slot === 'secondary' ? Flame : Atom,
+              tone,
+              onClick: () => {
+                setActiveWeaponSlot(binding.slot);
+                setWeapon(binding.weapon.id);
+              },
+            };
+          }),
+        ],
+      },
+      {
+        id: 'target',
+        label: 'Target Actions',
+        icon: Target,
+        actions: targetActions,
+      },
+      {
+        id: 'camera',
+        label: 'Camera',
+        icon: Camera,
+        actions: [
+          {
+            id: 'camera-mode',
+            label: `${cameraMode.toUpperCase()} Camera`,
+            detail: 'Pilot is close, explorer is default, cinematic is dramatic.',
+            chip: cameraMode.toUpperCase(),
+            icon: Camera,
+            tone: cameraMode === 'explorer' ? 'active' : 'ready',
+          },
+          {
+            id: 'camera-orbit',
+            label: 'Orbit View',
+            detail: 'Mouse drag rotates. Wheel adjusts zoom.',
+            chip: 'MOUSE',
+            icon: Sliders,
+            tone: 'neutral',
+          },
+          {
+            id: 'camera-reset',
+            label: 'Reset Camera',
+            detail: 'Restore default explorer framing and zoom.',
+            chip: 'RESET',
+            icon: RotateCcw,
+            tone: 'ready',
+            onClick: resetCamera,
+          },
+        ],
+      },
+      {
+        id: 'utility',
+        label: 'Utility',
+        icon: Activity,
+        actions: [
+          {
+            id: 'utility-analysis',
+            label: showAnalysisPanel ? 'Analysis Feed Open' : 'Analysis Feed',
+            detail: 'Open system events, inspection controls, and planet health.',
+            chip: 'DATA',
+            icon: BarChart3,
+            tone: showAnalysisPanel ? 'active' : 'neutral',
+            onClick: () => setShowAnalysisPanel(!showAnalysisPanel),
+          },
+          {
+            id: 'utility-gravity',
+            label: showGravityOverlay ? 'Gravity Grid Visible' : 'Gravity Grid',
+            detail: gravityWarning ? 'Gravity well warning active.' : 'Toggle local gravity visualization.',
+            chip: 'GRID',
+            icon: Shield,
+            tone: showGravityOverlay ? 'active' : gravityWarning ? 'warn' : 'neutral',
+            onClick: () => setShowGravityOverlay(!showGravityOverlay),
+          },
+          {
+            id: 'utility-orbits',
+            label: showOrbits ? 'Orbit Tracks Visible' : 'Orbit Tracks',
+            detail: 'Show or hide orbital lanes around major bodies.',
+            chip: 'PATH',
+            icon: Globe,
+            tone: showOrbits ? 'active' : 'neutral',
+            onClick: () => setShowOrbits(!showOrbits),
+          },
+        ],
+      },
+    ];
+  }, [
+    target,
+    isScanning,
+    scanProgress,
+    isScanned,
+    scanInRange,
+    isTargetDestroyed,
+    isInspectionMode,
+    inspectInRange,
+    showAnalysisPanel,
+    flightMode,
+    isBoosting,
+    isAutoPilot,
+    orbitAssist,
+    orbitAssistInRange,
+    weaponMode,
+    activeWeaponBinding,
+    activeWeaponSlot,
+    weaponRack,
+    weaponCooldowns,
+    weaponTargetValid,
+    weaponEnergy,
+    isCharging,
+    isFiring,
+    attackInRange,
+    cameraMode,
+    gravityWarning,
+    showGravityOverlay,
+    showOrbits,
+    resetCamera,
+    setAutoPilot,
+    setFlightMode,
+    setOrbitAssist,
+    setShowAnalysisPanel,
+    setIsInspectionMode,
+    setIsScanning,
+    setShowGravityOverlay,
+    setShowOrbits,
+    setActiveWeaponSlot,
+    setWeapon,
+    setWeaponMode,
+    distance,
+  ]);
+
+  const toggleShipModel = () => {
+    setShipModelId(shipModelId === 'spacy' ? 'scipio' : 'spacy');
+  };
+
+  if (status !== 'playing') return null;
 
   return (
     <div className="fixed inset-0 pointer-events-none font-mono text-xs text-[#00ffff] select-none">
@@ -264,7 +852,7 @@ export const HUD = () => {
       </div>
 
       {/* --- LEFT PANEL: VESSEL TELEMETRY --- */}
-      <div className="absolute top-24 left-8 space-y-6 w-64">
+      <div className="absolute top-24 bottom-24 left-8 flex w-64 flex-col gap-6">
         <div className="p-6 bg-black/60 border-l-2 border-[#00ffff] backdrop-blur-md shadow-[0_0_30px_rgba(0,255,255,0.05)] relative overflow-hidden group">
           {/* Corner Accents */}
           <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00ffff]/40" />
@@ -359,7 +947,21 @@ export const HUD = () => {
         </div>
 
         {/* Action Bar */}
-        <div className="p-2 bg-black/60 border border-white/10 backdrop-blur-md rounded flex flex-col gap-2 pointer-events-auto">
+        <div className="min-h-0 overflow-y-auto p-2 bg-black/60 border border-white/10 backdrop-blur-md rounded flex flex-col gap-2 pointer-events-auto custom-scrollbar">
+          <button
+            onClick={() => setTarget(targetPlanetId ? null : nearestTargetId)}
+            className={`flex items-center gap-3 p-3 transition-all rounded ${
+              targetPlanetId
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 shadow-[0_0_15px_rgba(34,211,238,0.16)]'
+                : 'hover:bg-white/5 text-white/60'
+            }`}
+          >
+            <Target size={16} />
+            <div className="flex flex-col items-start">
+              <span className="text-[10px] font-bold tracking-widest">TARGET LOCK</span>
+              <span className="text-[7px] opacity-50">{targetPlanetId ? 'PRESS T TO DISENGAGE' : 'PRESS T TO ENGAGE'}</span>
+            </div>
+          </button>
           <button 
             onClick={() => setFlightMode(flightMode === 'cruise' ? 'precision' : 'cruise')}
             className={`flex items-center gap-3 p-3 transition-all rounded ${
@@ -468,18 +1070,48 @@ export const HUD = () => {
 
           {weaponMode === 'armed' && (
             <div className="mt-2 p-2 border-t border-white/10 space-y-2">
-              {WEAPONS.map(w => (
+              <div className="px-1 pb-1 flex items-center justify-between text-[8px] uppercase tracking-[0.24em] text-white/35">
+                <span>Weapon Rack</span>
+                <span>{weaponTargetValid ? (attackInRange ? 'LOCK VALID' : 'OUT OF RANGE') : 'NO TARGET'}</span>
+              </div>
+              {weaponRack.map((binding) => (
                 <button
-                  key={w.id}
-                  onClick={() => setWeapon(w.id)}
-                  className={`w-full flex items-center gap-2 p-2 rounded text-[9px] transition-all ${
-                    currentWeaponId === w.id 
-                    ? 'bg-red-500/40 text-white border border-red-500/50' 
-                    : 'hover:bg-white/5 text-white/40'
+                  key={binding.slot}
+                  onClick={() => {
+                    setActiveWeaponSlot(binding.slot);
+                    setWeapon(binding.weapon.id);
+                  }}
+                  className={`w-full rounded border p-2 text-left text-[9px] transition-all ${
+                    binding.isActive
+                      ? 'border-red-500/50 bg-red-500/25 text-white'
+                      : binding.canFire
+                        ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-100'
+                        : 'border-white/10 text-white/50 hover:bg-white/5'
                   }`}
                 >
-                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: w.color }} />
-                  <span className="font-bold tracking-wider uppercase">{w.name}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: binding.weapon.color }} />
+                      <span className="font-bold tracking-wider uppercase">{binding.weapon.name}</span>
+                    </div>
+                    <span className="rounded border border-white/10 px-1.5 py-0.5 text-[7px] font-bold tracking-[0.2em] uppercase">
+                      {binding.uiChip}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[7px] uppercase tracking-[0.18em]">
+                    <span>
+                      {binding.cooldown > 0
+                        ? `Cooldown ${binding.cooldown.toFixed(1)}s`
+                        : binding.canFire
+                          ? 'Ready'
+                          : weaponEnergy < binding.weapon.energyCost
+                            ? 'Low Energy'
+                            : !weaponTargetValid
+                              ? 'Lock Target'
+                              : 'Standby'}
+                    </span>
+                    <span>{binding.label.replace(' Attack', '')}</span>
+                  </div>
                 </button>
               ))}
             </div>
@@ -496,15 +1128,24 @@ export const HUD = () => {
             exit={{ x: 100, opacity: 0 }}
             className="absolute top-24 right-8 w-72 space-y-6"
           >
-            <div className="p-6 bg-black/60 border-r-2 border-[#00ffff] backdrop-blur-md shadow-[0_0_30px_rgba(0,255,255,0.05)] relative overflow-hidden">
+            <motion.div
+              animate={targetRangeTone === 'warn' || targetRangeTone === 'locked'
+                ? { boxShadow: [`0 0 0 ${targetRangeColor}00`, `0 0 26px ${targetRangeColor}33`, `0 0 0 ${targetRangeColor}00`] }
+                : { boxShadow: '0 0 30px rgba(0,255,255,0.05)' }}
+              transition={targetRangeTone === 'warn' || targetRangeTone === 'locked'
+                ? { duration: 1.4, repeat: Infinity, ease: 'easeInOut' }
+                : { duration: 0.2 }}
+              className="relative overflow-hidden border-r-2 p-6 backdrop-blur-md"
+              style={{ borderColor: `${targetRangeColor}99`, backgroundColor: 'rgba(0,0,0,0.6)' }}
+            >
               {/* Corner Accents */}
-              <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00ffff]/40" />
-              <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#00ffff]/40" />
-              <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-[#00ffff]/40" />
-              <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#00ffff]/40" />
+              <div className="absolute top-0 left-0 h-2 w-2 border-l border-t" style={{ borderColor: `${targetRangeColor}66` }} />
+              <div className="absolute top-0 right-0 h-2 w-2 border-r border-t" style={{ borderColor: `${targetRangeColor}66` }} />
+              <div className="absolute bottom-0 left-0 h-2 w-2 border-b border-l" style={{ borderColor: `${targetRangeColor}66` }} />
+              <div className="absolute bottom-0 right-0 h-2 w-2 border-b border-r" style={{ borderColor: `${targetRangeColor}66` }} />
               
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2 text-[#00ffff] opacity-50">
+                <div className="flex items-center gap-2 opacity-70" style={{ color: targetRangeColor }}>
                   <Target size={14} />
                   <span className="text-[9px] tracking-[0.2em]">TARGET LOCK</span>
                 </div>
@@ -512,6 +1153,12 @@ export const HUD = () => {
               </div>
 
               <h2 className="text-3xl font-light tracking-wider uppercase mb-2">{target.name}</h2>
+              <div className="mb-4 flex flex-wrap gap-2">
+                <TacticalKeyChip label={target.visuals.type} tone={targetRangeTone} />
+                <TacticalKeyChip label={attackInRange ? 'IN RANGE' : 'APPROACH'} tone={targetRangeTone} />
+                <TacticalKeyChip label={targetAttackable ? 'ATTACKABLE' : 'NO FIRE'} tone={targetAttackable ? 'ready' : 'warn'} />
+                <TacticalKeyChip label={targetScannable ? 'SCANNABLE' : 'SCAN HOLD'} tone={targetScannable ? 'ready' : 'neutral'} />
+              </div>
               
               {/* Damage Status */}
               <div className="mb-6 space-y-2">
@@ -537,12 +1184,46 @@ export const HUD = () => {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
                   <div className="p-3 bg-white/5 border border-white/10 rounded">
+                    <div className="text-[7px] opacity-40 mb-1 uppercase tracking-widest">Type</div>
+                    <div className="text-[10px] font-bold uppercase">{target.visuals.type}</div>
+                  </div>
+                  <div className="p-3 bg-white/5 border border-white/10 rounded">
+                    <div className="text-[7px] opacity-40 mb-1 uppercase tracking-widest">Status</div>
+                    <div className="text-[10px] font-bold" style={{ color: targetRangeColor }}>
+                      {isTargetDestroyed ? 'INVALID' : attackInRange ? 'ATTACK WINDOW' : targetScannable ? 'UTILITY WINDOW' : 'OUTER RANGE'}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-white/5 border border-white/10 rounded">
                     <div className="text-[7px] opacity-40 mb-1 uppercase tracking-widest">Orbital Speed</div>
                     <div className="text-[10px] font-bold">{(target.speed * 1000).toFixed(1)} KM/H</div>
                   </div>
                   <div className="p-3 bg-white/5 border border-white/10 rounded">
                     <div className="text-[7px] opacity-40 mb-1 uppercase tracking-widest">Moons</div>
                     <div className="text-[10px] font-bold">{target.moons?.length || 0} DETECTED</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded border border-white/10 bg-white/5 p-3">
+                    <div className="text-[7px] uppercase tracking-widest opacity-40 mb-1">Inspect</div>
+                    <div className="text-[10px] font-bold">{inspectInRange ? 'AVAILABLE' : 'CLOSE IN'}</div>
+                  </div>
+                  <div className="rounded border border-white/10 bg-white/5 p-3">
+                    <div className="text-[7px] uppercase tracking-widest opacity-40 mb-1">Course</div>
+                    <div className="text-[10px] font-bold">{isAutoPilot ? 'ENGAGED' : 'MANUAL / AUTO'}</div>
+                  </div>
+                </div>
+
+                <div className="rounded border border-white/10 bg-white/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-[8px] uppercase tracking-[0.24em] text-white/35">
+                    <span>Target Actions</span>
+                    <span>{targetPlanetId ? 'T TO CLEAR' : 'T TO LOCK'}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <TacticalKeyChip label="T LOCK" tone={targetPlanetId ? 'active' : 'neutral'} />
+                    <TacticalKeyChip label={targetScannable ? 'SCAN READY' : 'SCAN HOLD'} tone={targetScannable ? 'ready' : 'neutral'} />
+                    <TacticalKeyChip label={targetAttackable ? activeWeaponBinding.uiChip : 'APPROACH'} tone={targetAttackable ? 'ready' : 'warn'} />
+                    <TacticalKeyChip label={isAutoPilot ? 'AUTO ON' : 'AUTO'} tone={isAutoPilot ? 'active' : 'neutral'} />
                   </div>
                 </div>
 
@@ -573,7 +1254,7 @@ export const HUD = () => {
                   </div>
                 )}
               </div>
-            </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -628,6 +1309,14 @@ export const HUD = () => {
             </div>
           </div>
 
+          <button
+            onClick={toggleShipModel}
+            className="px-5 py-3 bg-black/40 border border-white/10 rounded text-[9px] font-bold tracking-[0.2em] text-white/70 hover:text-[#00ffff] hover:border-[#00ffff] transition-all"
+            title={`Switch ship model (current: ${shipModelId})`}
+          >
+            SHIP: {shipModelId === 'spacy' ? 'SPACY' : 'SCIPIO'}
+          </button>
+
           <div className="flex items-center gap-2">
             <button 
               onClick={() => setShowOrbits(!showOrbits)}
@@ -669,7 +1358,7 @@ export const HUD = () => {
         {isCharging && (
           <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 w-32 space-y-1">
             <div className="flex justify-between text-[7px] font-bold text-red-400 tracking-widest">
-              <span>CHARGING</span>
+              <span>{activeWeaponBinding.weapon.name.toUpperCase()}</span>
               <span>{Math.round(chargeProgress * 100)}%</span>
             </div>
             <div className="h-1 w-full bg-white/10 rounded-full overflow-hidden border border-red-500/20">
@@ -683,9 +1372,9 @@ export const HUD = () => {
         )}
 
         {/* Fire Prompt */}
-        {weaponMode === 'armed' && target && distance < 300 && !isCharging && (
+        {weaponMode === 'armed' && target && distance < WEAPON_SYSTEM_TUNING.attackRange && !isCharging && (
           <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-[8px] font-bold text-red-500 animate-pulse tracking-[0.2em]">
-            HOLD [SPACE] TO FIRE {WEAPONS.find(w => w.id === currentWeaponId)?.name.toUpperCase()}
+            FIRE [{activeWeaponBinding.uiChip}] {activeWeaponBinding.weapon.name.toUpperCase()}
           </div>
         )}
       </div>
@@ -716,6 +1405,30 @@ export const HUD = () => {
               </div>
 
               <div className="space-y-6 overflow-y-auto max-h-[60vh] pr-4 custom-scrollbar">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-[10px] opacity-50 uppercase tracking-widest">
+                    <Monitor size={14} /> Ship Model
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { id: 'spacy', label: 'Spacy' },
+                      { id: 'scipio', label: 'Scipio' }
+                    ] as { id: ShipModelId; label: string }[]).map((model) => (
+                      <button
+                        key={model.id}
+                        onClick={() => setShipModelId(model.id)}
+                        className={`py-3 text-[9px] font-bold border transition-all tracking-widest ${
+                          shipModelId === model.id
+                            ? 'bg-[#00ffff]/20 border-[#00ffff] text-[#00ffff]'
+                            : 'border-white/10 text-white/40 hover:border-white/30'
+                        }`}
+                      >
+                        {model.label.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 text-[10px] opacity-50 uppercase tracking-widest">
                     <Monitor size={14} /> Graphics Quality
@@ -908,16 +1621,6 @@ export const HUD = () => {
         )}
       </AnimatePresence>
 
-      {/* --- FLIGHT CONTROLS HELP --- */}
-      <div className="absolute bottom-24 right-8 text-right opacity-20 text-[8px] uppercase tracking-[0.3em] space-y-2">
-        <div className="flex items-center justify-end gap-3">
-          <span>Flight Controls</span>
-          <div className="h-px w-12 bg-white/20" />
-        </div>
-        <div>W/S: PITCH | A/D: YAW | Q/E: ROLL</div>
-        <div>SPACE: THRUST | C: REVERSE | SHIFT: BOOST</div>
-        <div>ARROWS: STRAFE | MOUSE: ORBIT CAMERA</div>
-      </div>
     </div>
   );
 };

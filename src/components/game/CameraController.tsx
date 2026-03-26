@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore } from '../../store/useGameStore';
-import { SHIP_SPECS, PLANETS } from '../../constants/gameData';
+import { SHIP_SPECS, PLANETS, GAME_CAMERA_TUNING } from '../../constants/gameData';
 
 export const CameraController = () => {
   const cameraRef = useRef<THREE.PerspectiveCamera>(null);
@@ -24,16 +24,28 @@ export const CameraController = () => {
     cameraSensitivity,
     zoomSensitivity,
     screenShake,
-    setScreenShake
+    setScreenShake,
+    isAutoPilot,
+    currentWeaponId,
+    isFiring,
+    isCharging,
+    weaponMode,
+    destructionEvents
   } = useGameStore();
   
   const { gl } = useThree();
   
-  // Internal values for smooth interpolation
+  const raycaster = useRef(new THREE.Raycaster());
+  const smoothedTargetWorld = useRef<THREE.Vector3 | null>(null);
+  const currentFov = useRef(60);
   const currentRotation = useRef(new THREE.Euler().copy(cameraRotation));
   const currentDistance = useRef(cameraDistance);
   const targetRotation = useRef(new THREE.Euler().copy(cameraRotation));
   const targetDistance = useRef(cameraDistance);
+  const lookAtTarget = useRef(new THREE.Vector3());
+  const shakeOffset = useRef(new THREE.Vector3());
+  const previousMode = useRef(cameraMode);
+  const modeTransition = useRef(1);
   
   const isDragging = useRef(false);
   const previousMouse = useRef({ x: 0, y: 0 });
@@ -43,6 +55,13 @@ export const CameraController = () => {
     targetRotation.current.copy(cameraRotation);
     targetDistance.current = cameraDistance;
   }, [cameraRotation, cameraDistance]);
+
+  useEffect(() => {
+    if (previousMode.current !== cameraMode) {
+      previousMode.current = cameraMode;
+      modeTransition.current = 0;
+    }
+  }, [cameraMode]);
   
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
@@ -57,12 +76,15 @@ export const CameraController = () => {
       const deltaX = e.clientX - previousMouse.current.x;
       const deltaY = e.clientY - previousMouse.current.y;
       
-      const sensitivity = cameraSensitivity * 0.01;
-      targetRotation.current.y -= deltaX * sensitivity;
-      targetRotation.current.x -= deltaY * sensitivity;
+      const sensitivityX = GAME_CAMERA_TUNING.orbit.yawSpeed * (0.65 + cameraSensitivity);
+      const sensitivityY = GAME_CAMERA_TUNING.orbit.pitchSpeed * (0.65 + cameraSensitivity);
+      targetRotation.current.y -= deltaX * sensitivityX;
+      targetRotation.current.x -= deltaY * sensitivityY;
       
-      // Clamp vertical rotation
-      targetRotation.current.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, targetRotation.current.x));
+      targetRotation.current.x = Math.max(
+        GAME_CAMERA_TUNING.orbit.minPitch,
+        Math.min(GAME_CAMERA_TUNING.orbit.maxPitch, targetRotation.current.x)
+      );
       
       previousMouse.current = { x: e.clientX, y: e.clientY };
     };
@@ -75,8 +97,10 @@ export const CameraController = () => {
     
     const handleWheel = (e: WheelEvent) => {
       if (status !== 'playing') return;
-      const sensitivity = zoomSensitivity * 0.1;
-      targetDistance.current = Math.max(5, Math.min(150, targetDistance.current + e.deltaY * sensitivity));
+      const sensitivity = zoomSensitivity * GAME_CAMERA_TUNING.zoom.wheelSpeed;
+      const minZoom = GAME_CAMERA_TUNING.zoom.min[cameraMode];
+      const maxZoom = GAME_CAMERA_TUNING.zoom.max[cameraMode];
+      targetDistance.current = Math.max(minZoom, Math.min(maxZoom, targetDistance.current + e.deltaY * sensitivity));
       setCameraDistance(targetDistance.current);
     };
     
@@ -92,76 +116,192 @@ export const CameraController = () => {
       window.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('wheel', handleWheel);
     };
-  }, [gl, status, setCameraRotation, setCameraDistance]);
+  }, [gl, status, setCameraRotation, setCameraDistance, cameraMode, zoomSensitivity, cameraSensitivity]);
 
   useFrame((state, delta) => {
     if (!cameraRef.current || status !== 'playing') return;
 
     const mode = SHIP_SPECS.cameraModes[cameraMode];
+    const tuning = GAME_CAMERA_TUNING.modeConfig[cameraMode];
+    modeTransition.current = Math.min(1, modeTransition.current + delta * 3.4);
+    const modeBlend = THREE.MathUtils.smoothstep(modeTransition.current, 0, 1);
+    const rotationAlpha = (1 - Math.exp(-Math.max(tuning.rotationDamping, 0.04) * 10 * delta)) * (0.6 + modeBlend * 0.4);
+    const positionAlpha = (1 - Math.exp(-Math.max(tuning.positionDamping, 0.04) * 10 * delta)) * (0.55 + modeBlend * 0.45);
+    const lookAlpha = (1 - Math.exp(-Math.max(tuning.lookDamping, 0.04) * 10 * delta)) * (0.55 + modeBlend * 0.45);
     
-    // Smoothly interpolate rotation and distance
-    currentRotation.current.x = THREE.MathUtils.lerp(currentRotation.current.x, targetRotation.current.x, 0.1);
-    currentRotation.current.y = THREE.MathUtils.lerp(currentRotation.current.y, targetRotation.current.y, 0.1);
-    currentDistance.current = THREE.MathUtils.lerp(currentDistance.current, targetDistance.current, 0.1);
+    const minZoom = GAME_CAMERA_TUNING.zoom.min[cameraMode];
+    const maxZoom = GAME_CAMERA_TUNING.zoom.max[cameraMode];
+    targetDistance.current = THREE.MathUtils.clamp(targetDistance.current, minZoom, maxZoom);
 
-    // FOV Boost and Mode-based FOV
-    const targetFOV = isBoosting ? mode.fov + 15 : mode.fov;
-    cameraRef.current.fov = THREE.MathUtils.lerp(cameraRef.current.fov, targetFOV, 0.05);
-    cameraRef.current.updateProjectionMatrix();
+    currentRotation.current.x = THREE.MathUtils.lerp(currentRotation.current.x, targetRotation.current.x, rotationAlpha);
+    currentRotation.current.y = THREE.MathUtils.lerp(currentRotation.current.y, targetRotation.current.y, rotationAlpha);
+    currentDistance.current = THREE.MathUtils.lerp(currentDistance.current, targetDistance.current, positionAlpha);
 
-    // Calculate camera position relative to ship
-    // We combine the ship's orientation with the user's orbital rotation
-    // User said "Camera movement should be independent from ship orientation"
-    // but usually you want it centered on ship.
-    
-    const rotationMatrix = new THREE.Matrix4().makeRotationFromEuler(currentRotation.current);
-    const offset = new THREE.Vector3(0, 0, currentDistance.current).applyMatrix4(rotationMatrix);
-    
-    // Add ship's base offset if in pilot mode? 
-    // Actually, let's just use the orbital offset for all modes now as requested.
-    
-    const targetCamPos = shipPosition.clone().add(offset);
-    cameraRef.current.position.lerp(targetCamPos, 0.2);
-    
-    // Look at ship
-    const lookAtPos = shipPosition.clone();
-    
-    // Camera Shake based on speed and proximity
-    const speed = shipVelocity.length();
-    const totalShake = (speed > 10 ? (speed / 100) * 0.05 : 0) + (screenShake * 0.5);
-    
-    if (totalShake > 0.01 && effectIntensity > 0.1) {
-      const shakeAmount = totalShake * effectIntensity;
-      cameraRef.current.position.x += (Math.random() - 0.5) * shakeAmount;
-      cameraRef.current.position.y += (Math.random() - 0.5) * shakeAmount;
-      cameraRef.current.position.z += (Math.random() - 0.5) * shakeAmount;
-      
-      // Decay screenShake
-      if (screenShake > 0) {
-        setScreenShake(Math.max(0, screenShake - delta * 2));
-      }
-    }
+    const shipSpeed = shipVelocity.length();
+    const shipForward = new THREE.Vector3(0, 0, 1).applyQuaternion(shipQuaternion).normalize();
+    const shipUp = new THREE.Vector3(0, 1, 0).applyQuaternion(shipQuaternion).normalize();
+    const shipRight = new THREE.Vector3(1, 0, 0).applyQuaternion(shipQuaternion).normalize();
+    const stabilizedUp = new THREE.Vector3(0, 1, 0).lerp(shipUp, tuning.rollFollow).normalize();
 
-    // Cinematic Arrival
-    if (targetPlanetId) {
-      const targetPlanet = PLANETS.find(p => p.id === targetPlanetId);
-      if (targetPlanet) {
-        const dist = shipPosition.distanceTo(new THREE.Vector3(
+    const targetPlanet = targetPlanetId
+      ? PLANETS.find((planet) => planet.id === targetPlanetId) ?? null
+      : null;
+    const targetPlanetPosition = targetPlanet
+      ? new THREE.Vector3(
           Math.cos(simulationTime * targetPlanet.speed) * targetPlanet.distance,
           0,
           Math.sin(simulationTime * targetPlanet.speed) * targetPlanet.distance
-        ));
-        
-        // Zoom in slightly when approaching
-        if (dist < targetPlanet.radius + 50 && dist > targetPlanet.radius + 10) {
-          const approachFactor = 1 - (dist - targetPlanet.radius - 10) / 40;
-          cameraRef.current.fov -= approachFactor * 5;
-          cameraRef.current.updateProjectionMatrix();
-        }
+        )
+      : null;
+    const targetPlanetDistance = targetPlanetPosition ? shipPosition.distanceTo(targetPlanetPosition) : Infinity;
+
+    if (targetPlanetPosition) {
+      if (!smoothedTargetWorld.current) {
+        smoothedTargetWorld.current = targetPlanetPosition.clone();
+      } else {
+        smoothedTargetWorld.current.lerp(targetPlanetPosition, Math.min(1, delta * 4));
+      }
+    } else {
+      smoothedTargetWorld.current = null;
+    }
+
+    let desiredDistance = currentDistance.current;
+    if (isBoosting) {
+      desiredDistance = THREE.MathUtils.lerp(desiredDistance, tuning.boostDistance, 0.35);
+    } else {
+      desiredDistance = THREE.MathUtils.lerp(desiredDistance, tuning.baseDistance, 0.15);
+    }
+    desiredDistance = THREE.MathUtils.clamp(desiredDistance, minZoom, maxZoom);
+    currentDistance.current = THREE.MathUtils.lerp(currentDistance.current, desiredDistance, positionAlpha);
+
+    let targetFOV = mode.fov;
+    if (isBoosting) targetFOV += tuning.boostFovDelta;
+    if (weaponMode === 'armed' && (isFiring || isCharging)) targetFOV += tuning.weaponFovDelta;
+    if (isAutoPilot) targetFOV += 1.5;
+    currentFov.current = THREE.MathUtils.lerp(currentFov.current, targetFOV, 0.04 + modeBlend * 0.06);
+    cameraRef.current.fov = currentFov.current;
+    cameraRef.current.updateProjectionMatrix();
+
+    const localLookQuat = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(currentRotation.current.x, currentRotation.current.y, 0, 'YXZ')
+    );
+    const orbitBasis = new THREE.Matrix4().lookAt(
+      new THREE.Vector3(0, 0, 0),
+      shipForward,
+      stabilizedUp
+    );
+    const shipStabilizedQuat = new THREE.Quaternion().setFromRotationMatrix(orbitBasis).invert();
+    const combinedQuat = shipStabilizedQuat.clone().multiply(localLookQuat);
+
+    const baseOffset = new THREE.Vector3(mode.offset.x, mode.offset.y, mode.offset.z);
+    const baseLookAt = new THREE.Vector3(mode.lookAt.x, mode.lookAt.y, mode.lookAt.z);
+    const zoomScale = currentDistance.current / Math.max(1, tuning.baseDistance);
+    if (cameraMode !== 'pilot') {
+      baseOffset.multiplyScalar(zoomScale);
+    }
+
+    let targetCamPos = shipPosition.clone().add(baseOffset.applyQuaternion(combinedQuat));
+    let desiredLookAt = shipPosition.clone().add(baseLookAt.applyQuaternion(combinedQuat));
+
+    if (cameraMode === 'pilot') {
+      const pilotOffset = shipForward.clone().multiplyScalar(-2.4 - (isBoosting ? 0.6 : 0))
+        .add(stabilizedUp.clone().multiplyScalar(1.15))
+        .add(shipRight.clone().multiplyScalar(tuning.shoulderBias + currentRotation.current.y * 0.45));
+      targetCamPos = shipPosition.clone().add(pilotOffset);
+      desiredLookAt = shipPosition.clone()
+        .add(shipForward.clone().multiplyScalar(tuning.lookAhead))
+        .add(stabilizedUp.clone().multiplyScalar(currentRotation.current.x * 5));
+    } else if (cameraMode === 'explorer') {
+      targetCamPos = shipPosition.clone()
+        .add(shipForward.clone().multiplyScalar(-currentDistance.current))
+        .add(stabilizedUp.clone().multiplyScalar(4.5 + tuning.nearPlanetLift))
+        .add(shipRight.clone().multiplyScalar(currentRotation.current.y * 4.5));
+      desiredLookAt = shipPosition.clone()
+        .add(shipForward.clone().multiplyScalar(tuning.lookAhead))
+        .add(stabilizedUp.clone().multiplyScalar(1.75));
+    } else if (cameraMode === 'cinematic') {
+      targetCamPos = shipPosition.clone()
+        .add(shipForward.clone().multiplyScalar(-currentDistance.current * 0.85))
+        .add(stabilizedUp.clone().multiplyScalar(6.2 + tuning.nearPlanetLift))
+        .add(shipRight.clone().multiplyScalar(9.5 + tuning.targetSideBias * 4));
+      desiredLookAt = shipPosition.clone()
+        .add(shipForward.clone().multiplyScalar(tuning.lookAhead))
+        .add(stabilizedUp.clone().multiplyScalar(1));
+    }
+
+    if (smoothedTargetWorld.current) {
+      const toTarget = smoothedTargetWorld.current.clone().sub(shipPosition);
+      const targetDistance = toTarget.length();
+      const assistStrength = THREE.MathUtils.clamp(
+        1 - targetDistance / tuning.targetComposeDistance,
+        0,
+        1
+      ) * tuning.targetAssist;
+      if (assistStrength > 0.001) {
+        const midpoint = shipPosition.clone().lerp(smoothedTargetWorld.current, 0.45);
+        desiredLookAt.lerp(midpoint, assistStrength);
+        const targetSide = shipRight.dot(toTarget.normalize());
+        targetCamPos.add(shipRight.clone().multiplyScalar(-targetSide * tuning.targetSideBias * assistStrength * currentDistance.current));
+        targetCamPos.add(stabilizedUp.clone().multiplyScalar(Math.min(4, assistStrength * currentDistance.current * 0.16)));
       }
     }
+
+    if (targetPlanet && targetPlanetDistance < targetPlanet.radius + 35) {
+      const nearFactor = THREE.MathUtils.clamp(1 - (targetPlanetDistance - targetPlanet.radius) / 35, 0, 1);
+      targetCamPos.add(stabilizedUp.clone().multiplyScalar(tuning.nearPlanetLift * nearFactor * 4));
+      desiredLookAt.add(shipForward.clone().multiplyScalar(nearFactor * 8));
+    }
+
+    if (isAutoPilot) {
+      targetCamPos.add(shipForward.clone().multiplyScalar(-GAME_CAMERA_TUNING.autoPilot.forwardLead));
+      desiredLookAt.add(shipForward.clone().multiplyScalar(GAME_CAMERA_TUNING.autoPilot.lookAhead));
+    }
+
+    const toCamera = targetCamPos.clone().sub(shipPosition);
+    const desiredCameraDistance = toCamera.length();
+    if (desiredCameraDistance > 0.001) {
+      const dir = toCamera.clone().normalize();
+      let safeDistance = desiredCameraDistance;
+
+      Object.values(useGameStore.getState().planetPositions).forEach((planetPos, index) => {
+        const planet = PLANETS[index];
+        if (!planet) return;
+        raycaster.current.set(shipPosition, dir);
+        const projection = raycaster.current.ray.closestPointToPoint(planetPos, new THREE.Vector3());
+        const offAxisDistance = projection.distanceTo(planetPos);
+        if (offAxisDistance < planet.radius + GAME_CAMERA_TUNING.collision.safetyRadius) {
+          const alongRay = shipPosition.distanceTo(projection);
+          if (alongRay > 0 && alongRay < safeDistance) {
+            safeDistance = Math.max(
+              GAME_CAMERA_TUNING.zoom.min[cameraMode],
+              alongRay - planet.radius - GAME_CAMERA_TUNING.collision.padding
+            );
+          }
+        }
+      });
+
+      targetCamPos = shipPosition.clone().add(dir.multiplyScalar(safeDistance));
+    }
+
+    lookAtTarget.current.lerp(desiredLookAt, lookAlpha);
+
+    // Only apply collision-driven shake, and smooth it so the HUD/camera read as stable.
+    if (screenShake > 0.001 && effectIntensity > 0.05) {
+      const t = state.clock.elapsedTime * 20;
+      const shakeAmount = Math.min(0.35, screenShake * 0.3 * effectIntensity);
+      shakeOffset.current.set(
+        Math.sin(t) * shakeAmount,
+        Math.cos(t * 1.3) * shakeAmount * 0.6,
+        0
+      );
+      setScreenShake(Math.max(0, screenShake - delta * 1.5));
+    } else {
+      shakeOffset.current.lerp(new THREE.Vector3(), Math.min(1, delta * 10));
+    }
+
+    cameraRef.current.position.lerp(targetCamPos.clone().add(shakeOffset.current), Math.min(1, positionAlpha * 1.5));
     
-    cameraRef.current.lookAt(lookAtPos);
+    cameraRef.current.lookAt(lookAtTarget.current);
   });
 
   return <PerspectiveCamera ref={cameraRef} makeDefault near={0.1} far={200000} />;

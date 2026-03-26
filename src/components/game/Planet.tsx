@@ -1,4 +1,4 @@
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Text, Float, Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -6,6 +6,7 @@ import { useGameStore, PlanetData } from '../../store/useGameStore';
 import { DebrisSystem } from './DebrisSystem';
 import { AlertTriangle } from 'lucide-react';
 import { Moon, Atmosphere, Clouds, Rings, TargetHighlight, GravityWell, ScannedOverlay } from './PlanetComponents';
+import { TARGET_UX_TUNING } from '../../constants/gameData';
 
 interface PlanetProps {
   data: PlanetData;
@@ -14,8 +15,10 @@ interface PlanetProps {
 export const Planet = ({ data }: PlanetProps) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
+  const [isHovered, setIsHovered] = useState(false);
   const { 
     simulationTime, 
+    shipPosition,
     targetPlanetId, 
     setTarget, 
     showOrbits, 
@@ -30,6 +33,22 @@ export const Planet = ({ data }: PlanetProps) => {
   const state = planetStates[data.id] || { damage: 0, isCritical: false, health: 100, isDestroyed: false };
   const isScanned = scannedPlanetIds.includes(data.id);
   const visuals = data.visuals;
+  const currentAngle = simulationTime * data.speed;
+  const currentPosition = useMemo(
+    () => new THREE.Vector3(Math.cos(currentAngle) * data.distance, 0, Math.sin(currentAngle) * data.distance),
+    [currentAngle, data.distance]
+  );
+  const targetDistance = Math.round(shipPosition.distanceTo(currentPosition));
+  const isScannable = targetDistance <= TARGET_UX_TUNING.scanRange;
+  const isInspectable = targetDistance <= TARGET_UX_TUNING.inspectRange;
+  const isAttackable = targetDistance <= TARGET_UX_TUNING.attackRange && !state.isDestroyed;
+  const targetTone: keyof typeof TARGET_UX_TUNING.colors = state.isDestroyed
+    ? 'invalid'
+    : isAttackable
+      ? 'inRange'
+      : isScannable || isInspectable
+        ? 'warning'
+        : 'neutral';
 
   // Texture loading with fallback
   const textures = useMemo(() => {
@@ -89,8 +108,9 @@ export const Planet = ({ data }: PlanetProps) => {
   });
 
   const surfaceMaterial = useMemo(() => {
+    const hasColorMap = Boolean(textures.map);
     const mat = new THREE.MeshStandardMaterial({
-      color: visuals.surfaceColor,
+      color: hasColorMap ? '#ffffff' : visuals.surfaceColor,
       map: textures.map || null,
       normalMap: textures.normalMap || null,
       roughnessMap: textures.roughnessMap || null,
@@ -176,6 +196,11 @@ export const Planet = ({ data }: PlanetProps) => {
             e.stopPropagation();
             setTarget(data.id);
           }}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            setIsHovered(true);
+          }}
+          onPointerOut={() => setIsHovered(false)}
         >
           <mesh ref={meshRef} material={surfaceMaterial}>
             <sphereGeometry args={[data.radius, 64, 64]} />
@@ -185,7 +210,7 @@ export const Planet = ({ data }: PlanetProps) => {
             <Atmosphere config={visuals.atmosphere} radius={data.radius} />
           )}
 
-          {visuals.clouds && (
+          {visuals.clouds && visuals.textures?.cloudsMap && (
             <Clouds 
               config={visuals.clouds} 
               radius={data.radius} 
@@ -210,6 +235,12 @@ export const Planet = ({ data }: PlanetProps) => {
               radius={data.radius} 
               isScanning={isScanning} 
               scanProgress={scanProgress} 
+              tone={targetTone}
+              targetName={data.name}
+              distance={targetDistance}
+              targetType={visuals.type}
+              attackable={isAttackable}
+              scannable={isScannable}
             />
           )}
 
@@ -247,23 +278,27 @@ export const Planet = ({ data }: PlanetProps) => {
           <Text
             position={[0, data.radius + 6, 0]}
             fontSize={data.radius * 0.2 + 2}
-            color={isTarget ? "#00ffff" : "white"}
+            color={isTarget ? TARGET_UX_TUNING.colors[targetTone] : isHovered ? "#d8f7ff" : "white"}
             anchorX="center"
             anchorY="middle"
             font="https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hjp-Ek-_EeA.woff"
           >
-            {data.name}
+            {isTarget ? `${data.name} [LOCKED]` : isHovered ? `${data.name} [SELECT]` : data.name}
           </Text>
-          {isTarget && (
+          {(isTarget || isHovered) && (
             <Text
               position={[0, data.radius + 4, 0]}
               fontSize={1.5}
-              color="#00ffff"
+              color={isTarget ? TARGET_UX_TUNING.colors[targetTone] : "#a5f3fc"}
               fillOpacity={0.6}
               anchorX="center"
               anchorY="middle"
             >
-              {isScanned ? "DATA SECURED" : "UNSCANNED"}
+              {isTarget
+                ? `${targetDistance} KM  |  ${isAttackable ? 'ATTACK' : isScannable ? 'SCAN' : 'APPROACH'}`
+                : isScanned
+                  ? "DATA SECURED"
+                  : "CLICK TO LOCK"}
             </Text>
           )}
         </Float>

@@ -1,6 +1,6 @@
-import { Stars, Environment, Line } from '@react-three/drei';
+import { Stars, Environment, Line, useTexture } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { EffectComposer, Bloom, Vignette, Noise, ChromaticAberration } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, Vignette, Noise } from '@react-three/postprocessing';
 import { Planet } from './Planet';
 import { GravityOverlay } from './GravityOverlay';
 import { Ship } from './Ship';
@@ -61,6 +61,20 @@ const SpeedStreaks = () => {
   );
 };
 
+const SpaceBackdrop = () => {
+  const texture = useTexture('/textures/space/milky_way.jpg');
+
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+
+  return (
+    <mesh scale={[-1, 1, 1]}>
+      <sphereGeometry args={[3500, 64, 64]} />
+      <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} />
+    </mesh>
+  );
+};
+
 export const SpaceScene = () => {
   const { 
     targetPlanetId, 
@@ -98,12 +112,13 @@ export const SpaceScene = () => {
     return base.lerp(accent, 0.05).getStyle();
   }, [targetPlanetId]);
 
-  const bloomIntensity = graphicsQuality === 'high' ? 1.5 * effectIntensity : 0.8 * effectIntensity;
+  const bloomIntensity = graphicsQuality === 'high' ? 1.1 * effectIntensity : 0.6 * effectIntensity;
   const vignetteDarkness = 0.8 + (0.4 * effectIntensity);
 
   return (
     <>
       <color attach="background" args={[moodColor]} />
+      <SpaceBackdrop />
       
       {/* Enhanced Starfield */}
       <Stars 
@@ -165,16 +180,11 @@ export const SpaceScene = () => {
       <EffectComposer>
         <Bloom 
           intensity={bloomIntensity} 
-          luminanceThreshold={0.2} 
-          luminanceSmoothing={0.9} 
+          luminanceThreshold={0.35} 
+          luminanceSmoothing={0.8} 
         />
-        <Noise opacity={0.05} />
+        <Noise opacity={graphicsQuality === 'high' ? 0.02 : 0.01} />
         <Vignette eskil={false} offset={0.1} darkness={vignetteDarkness} />
-        {graphicsQuality === 'high' && (
-          <ChromaticAberration 
-            offset={new THREE.Vector2(0.001 * effectIntensity, 0.001 * effectIntensity)} 
-          />
-        )}
       </EffectComposer>
 
       <Environment preset="night" />

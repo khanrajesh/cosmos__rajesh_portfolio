@@ -1,6 +1,6 @@
 import { useRef, useMemo, useState } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
-import { PerspectiveCamera, Float, Trail, Sparkles } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
+import { Trail, Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore } from '../../store/useGameStore';
 import { useKeyboard } from '../../hooks/useKeyboard';
@@ -23,7 +23,6 @@ export const Ship = () => {
     shipStatus,
     damageShip,
     resetShip,
-    screenShake,
     setScreenShake,
     planetPositions,
     destructionEvents,
@@ -34,7 +33,7 @@ export const Ship = () => {
   // Physics refs
   const velocity = useRef(new THREE.Vector3());
   const position = useRef(new THREE.Vector3(0, 0, 500));
-  const quaternion = useRef(new THREE.Quaternion());
+  const quaternion = useRef(useGameStore.getState().shipQuaternion.clone());
   
   // Visual state
   const [thrustIntensity, setThrustIntensity] = useState(0);
@@ -61,17 +60,17 @@ export const Ship = () => {
   const stunDuration = 0.3;
   const respawnTimer = useRef<number | null>(null);
 
+  const getTargetQuaternion = (direction: THREE.Vector3) => {
+    const forward = direction.clone().normalize();
+    const fallbackUp = Math.abs(forward.y) > 0.92 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+    const right = new THREE.Vector3().crossVectors(fallbackUp, forward).normalize();
+    const up = new THREE.Vector3().crossVectors(forward, right).normalize();
+    const matrix = new THREE.Matrix4().makeBasis(right, up, forward);
+    return new THREE.Quaternion().setFromRotationMatrix(matrix);
+  };
+
   useFrame((state, delta) => {
     if (!meshRef.current || status !== 'playing') return;
-
-    // --- SCREEN SHAKE ---
-    if (screenShake > 0) {
-      const shakeX = (Math.random() - 0.5) * screenShake * 2;
-      const shakeY = (Math.random() - 0.5) * screenShake * 2;
-      state.camera.position.x += shakeX;
-      state.camera.position.y += shakeY;
-      setScreenShake(Math.max(0, screenShake - delta * 2));
-    }
 
     // --- DEATH HANDLING ---
     if (shipStatus === 'destroyed') {
@@ -81,7 +80,9 @@ export const Ship = () => {
       
       if (simulationTime >= respawnTimer.current) {
         resetShip();
-        position.current.copy(useGameStore.getState().shipPosition);
+        const resetState = useGameStore.getState();
+        position.current.copy(resetState.shipPosition);
+        quaternion.current.copy(resetState.shipQuaternion);
         velocity.current.set(0, 0, 0);
         respawnTimer.current = null;
       }
@@ -190,33 +191,44 @@ export const Ship = () => {
       const toTarget = targetPos.clone().sub(position.current);
       const distance = toTarget.length();
       const direction = toTarget.clone().normalize();
+      const desiredDistance = SHIP_SPECS.orbitDist;
+      const brakingDistance = SHIP_SPECS.autoPilotSlowdownDist;
+      const shipSpeed = velocity.current.length();
+      const desiredSpeed = distance > desiredDistance
+        ? THREE.MathUtils.clamp(
+            ((distance - desiredDistance) / brakingDistance) * SHIP_SPECS.autoPilotSpeed,
+            12,
+            SHIP_SPECS.autoPilotSpeed
+          )
+        : 0;
+      const desiredVelocity = direction.clone().multiplyScalar(desiredSpeed);
+      const steering = desiredVelocity.sub(velocity.current);
+      const maxSteering = SHIP_SPECS.acceleration * 1.4 * delta;
 
-      // Slow down as we approach
-      const speedLimit = distance < SHIP_SPECS.autoPilotSlowdownDist 
-        ? Math.max(10, (distance / SHIP_SPECS.autoPilotSlowdownDist) * SHIP_SPECS.autoPilotSpeed)
-        : SHIP_SPECS.autoPilotSpeed;
-
-      if (distance > SHIP_SPECS.orbitDist) {
+      if (distance > desiredDistance) {
         autoPilotPhase.current = 'approaching';
         
         // Rotate towards target
-        const targetQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
-        quaternion.current.slerp(targetQuat, 2 * delta);
+        const targetQuat = getTargetQuaternion(direction);
+        quaternion.current.slerp(targetQuat, 2.8 * delta);
 
-        // Move forward
-        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion.current);
-        velocity.current.add(forward.multiplyScalar(SHIP_SPECS.acceleration * delta));
-        
-        // Cap speed
-        if (velocity.current.length() > speedLimit) {
-          velocity.current.setLength(speedLimit);
+        if (steering.length() > maxSteering) {
+          steering.setLength(maxSteering);
+        }
+
+        velocity.current.add(steering);
+
+        if (shipSpeed > SHIP_SPECS.autoPilotSpeed) {
+          velocity.current.setLength(SHIP_SPECS.autoPilotSpeed);
         }
       } else {
         autoPilotPhase.current = 'orbiting';
-        velocity.current.lerp(new THREE.Vector3(), 0.1);
-        const targetQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
-        quaternion.current.slerp(targetQuat, 2 * delta);
+        velocity.current.lerp(new THREE.Vector3(), 0.12);
+        const targetQuat = getTargetQuaternion(direction);
+        quaternion.current.slerp(targetQuat, 2.2 * delta);
       }
+
+      currentThrust = THREE.MathUtils.lerp(currentThrust, desiredSpeed > 0 ? 0.55 : 0.15, 0.6);
 
       // Exit auto-pilot if keys are pressed
       if (keys.current['KeyW'] || keys.current['KeyS'] || keys.current['KeyA'] || keys.current['KeyD'] || keys.current['Space']) {
@@ -285,21 +297,9 @@ export const Ship = () => {
       quaternion.current.normalize();
 
       // Thrust Logic
-      const { weaponMode, setIsFiring } = useGameStore.getState();
       let targetThrust = 0;
-      
-      if (weaponMode === 'armed') {
-        if (keys.current['Space']) {
-          setIsFiring(true);
-          targetThrust = 0;
-        } else {
-          setIsFiring(false);
-          if (keys.current['KeyW']) targetThrust = 0.3;
-        }
-      } else {
-        if (keys.current['Space']) targetThrust = 1;
-      }
-      
+
+      if (keys.current['Space']) targetThrust = 1;
       if (keys.current['KeyC']) targetThrust = -0.5;
 
       smoothedInput.current.thrust = THREE.MathUtils.lerp(smoothedInput.current.thrust, targetThrust, alpha);
@@ -443,41 +443,49 @@ export const Ship = () => {
     setShipState(position.current, velocity.current, quaternion.current, currentBoost);
   });
 
-  const engineColor = boostIntensity > 0.5 ? "#00ffff" : "#ff4400";
+  const engineGlowIntensity = Math.max(Math.abs(thrustIntensity), boostIntensity);
+  const engineColor = boostIntensity > 0.35 ? "#ffd54a" : "#ff7a1a";
+  const engineCoreColor = boostIntensity > 0.35 ? "#fff2a6" : "#ffd08a";
 
   return (
     <group ref={meshRef}>
       {/* Engine Trails */}
       {effectIntensity > 0.1 && (
-        <>
-          <group position={[-0.4, 0, -1.8]}>
-            <Trail
-              width={2 * thrustIntensity}
-              length={15 * effectIntensity * (boostIntensity + 1)}
-              color={new THREE.Color(engineColor)}
-              attenuation={(t) => t * t}
-            />
-          </group>
-          <group position={[0.4, 0, -1.8]}>
-            <Trail
-              width={2 * thrustIntensity}
-              length={15 * effectIntensity * (boostIntensity + 1)}
-              color={new THREE.Color(engineColor)}
-              attenuation={(t) => t * t}
-            />
-          </group>
-        </>
+        <group position={[0, 0, -3]}>
+          <Trail
+            width={Math.max(0.28, 3.2 * engineGlowIntensity)}
+            length={22 * effectIntensity * (1 + boostIntensity * 2)}
+            color={new THREE.Color(engineColor)}
+            attenuation={(t) => t * t}
+          />
+        </group>
+      )}
+
+      {/* Engine Glow */}
+      {engineGlowIntensity > 0.05 && (
+        <group position={[0, 0, -3]}>
+          <mesh>
+            <sphereGeometry args={[0.22 + engineGlowIntensity * 0.16, 20, 20]} />
+            <meshBasicMaterial color={engineCoreColor} transparent opacity={0.78 + boostIntensity * 0.18} toneMapped={false} />
+          </mesh>
+          <pointLight
+            color={engineColor}
+            intensity={1.4 + engineGlowIntensity * 5.5}
+            distance={10 + engineGlowIntensity * 12}
+            decay={2}
+          />
+        </group>
       )}
 
       {/* Engine Particles (Sparkles) */}
-      {(thrustIntensity > 0.1 || boostIntensity > 0.1) && (
-        <group position={[0, 0, -2]}>
+      {engineGlowIntensity > 0.08 && (
+        <group position={[0, 0, -3.1]}>
           <Sparkles 
-            count={Math.round(20 * (thrustIntensity + boostIntensity * 2))} 
-            scale={1} 
-            size={1.5} 
-            speed={3} 
-            color={engineColor} 
+            count={Math.round(28 * (engineGlowIntensity + boostIntensity * 2.5))} 
+            scale={1.2 + boostIntensity * 0.5} 
+            size={2 + boostIntensity} 
+            speed={4 + boostIntensity * 2} 
+            color={engineCoreColor} 
           />
         </group>
       )}

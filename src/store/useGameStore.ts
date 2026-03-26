@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import { PLANETS } from '../constants/gameData';
+import { GAME_CAMERA_TUNING } from '../constants/gameData';
 
 export interface MoonData {
   id: string;
@@ -94,6 +95,14 @@ export type GameStatus = 'loading' | 'menu' | 'playing' | 'portfolio';
 export type CameraMode = 'pilot' | 'explorer' | 'cinematic';
 export type GraphicsQuality = 'low' | 'medium' | 'high';
 export type GameMode = 'explorer' | 'sandbox';
+export type ShipModelId = 'spacy' | 'scipio';
+export type WeaponSlot = 'primary' | 'secondary' | 'heavy';
+
+const DEFAULT_SHIP_POSITION = new THREE.Vector3(0, 0, 500);
+const DEFAULT_SHIP_QUATERNION = new THREE.Quaternion().setFromAxisAngle(
+  new THREE.Vector3(0, 1, 0),
+  Math.PI
+);
 
 interface GameState {
   // Game Status
@@ -141,6 +150,7 @@ interface GameState {
   weaponEffectIntensity: number;
   cameraRotation: THREE.Euler;
   cameraDistance: number;
+  shipModelId: ShipModelId;
   
   // Simulation
   simulationTime: number;
@@ -154,7 +164,9 @@ interface GameState {
   weaponMode: 'safe' | 'armed';
   flightMode: 'cruise' | 'precision';
   controlSmoothing: number;
+  activeWeaponSlot: WeaponSlot;
   currentWeaponId: string;
+  weaponCooldowns: Record<WeaponSlot, number>;
   weaponEnergy: number; // 0 to 100
   isFiring: boolean;
   isCharging: boolean;
@@ -199,6 +211,7 @@ interface GameState {
   setWeaponEffectIntensity: (intensity: number) => void;
   setCameraRotation: (rotation: THREE.Euler) => void;
   setCameraDistance: (distance: number) => void;
+  setShipModelId: (id: ShipModelId) => void;
   resetCamera: () => void;
   setScanProgress: (progress: number) => void;
   setIsScanning: (active: boolean) => void;
@@ -208,7 +221,9 @@ interface GameState {
   setWeaponMode: (mode: 'safe' | 'armed') => void;
   setFlightMode: (mode: 'cruise' | 'precision') => void;
   setControlSmoothing: (value: number) => void;
+  setActiveWeaponSlot: (slot: WeaponSlot) => void;
   setWeapon: (id: string) => void;
+  setWeaponCooldowns: (cooldowns: Record<WeaponSlot, number>) => void;
   setIsFiring: (active: boolean) => void;
   setIsCharging: (active: boolean) => void;
   setChargeProgress: (progress: number) => void;
@@ -231,9 +246,9 @@ export const useGameStore = create<GameState>((set) => ({
   
   shipHealth: 100,
   shipStatus: 'intact',
-  shipPosition: new THREE.Vector3(0, 0, 500),
+  shipPosition: DEFAULT_SHIP_POSITION.clone(),
   shipVelocity: new THREE.Vector3(0, 0, 0),
-  shipQuaternion: new THREE.Quaternion(),
+  shipQuaternion: DEFAULT_SHIP_QUATERNION.clone(),
   isBoosting: false,
   isAutoPilot: false,
   orbitAssist: false,
@@ -256,7 +271,7 @@ export const useGameStore = create<GameState>((set) => ({
   showAnalysisPanel: false,
   isInspectionMode: false,
   
-  cameraMode: 'pilot',
+  cameraMode: GAME_CAMERA_TUNING.defaultMode,
   graphicsQuality: 'high',
   effectIntensity: 0.8,
   cameraSensitivity: 0.5,
@@ -265,6 +280,7 @@ export const useGameStore = create<GameState>((set) => ({
   weaponEffectIntensity: 0.8,
   cameraRotation: new THREE.Euler(0, 0, 0),
   cameraDistance: 15,
+  shipModelId: 'spacy',
   
   simulationTime: 0,
   
@@ -276,7 +292,13 @@ export const useGameStore = create<GameState>((set) => ({
   weaponMode: 'safe',
   flightMode: 'cruise',
   controlSmoothing: 0.5,
+  activeWeaponSlot: 'primary',
   currentWeaponId: 'fracture-beam',
+  weaponCooldowns: {
+    primary: 0,
+    secondary: 0,
+    heavy: 0,
+  },
   weaponEnergy: 100,
   isFiring: false,
   isCharging: false,
@@ -333,10 +355,11 @@ export const useGameStore = create<GameState>((set) => ({
   
   setCameraRotation: (cameraRotation) => set({ cameraRotation }),
   setCameraDistance: (cameraDistance) => set({ cameraDistance }),
+  setShipModelId: (shipModelId) => set({ shipModelId }),
   resetCamera: () => set({ 
     cameraRotation: new THREE.Euler(0, 0, 0), 
     cameraDistance: 15,
-    cameraMode: 'pilot'
+    cameraMode: GAME_CAMERA_TUNING.defaultMode
   }),
   
   setScanProgress: (progress) => set({ scanProgress: progress }),
@@ -354,7 +377,9 @@ export const useGameStore = create<GameState>((set) => ({
   setWeaponMode: (mode: 'safe' | 'armed') => set({ weaponMode: mode }),
   setFlightMode: (mode) => set({ flightMode: mode }),
   setControlSmoothing: (value) => set({ controlSmoothing: value }),
+  setActiveWeaponSlot: (activeWeaponSlot) => set({ activeWeaponSlot }),
   setWeapon: (id) => set({ currentWeaponId: id }),
+  setWeaponCooldowns: (weaponCooldowns) => set({ weaponCooldowns }),
   setIsFiring: (isFiring) => set({ isFiring }),
   setIsCharging: (isCharging) => set({ isCharging }),
   setChargeProgress: (chargeProgress) => set({ chargeProgress }),
@@ -462,8 +487,9 @@ export const useGameStore = create<GameState>((set) => ({
   resetShip: () => set((state) => ({
     shipHealth: 100,
     shipStatus: 'intact',
-    shipPosition: new THREE.Vector3(0, 0, 500),
+    shipPosition: DEFAULT_SHIP_POSITION.clone(),
     shipVelocity: new THREE.Vector3(0, 0, 0),
+    shipQuaternion: DEFAULT_SHIP_QUATERNION.clone(),
     screenShake: 0,
     lastCollisionObject: null
   })),
