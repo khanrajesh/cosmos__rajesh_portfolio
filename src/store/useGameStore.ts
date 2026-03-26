@@ -21,6 +21,15 @@ export interface PlanetVisualConfig {
   emissiveIntensity?: number;
   roughness?: number;
   metalness?: number;
+  textures?: {
+    map?: string;
+    normalMap?: string;
+    roughnessMap?: string;
+    emissiveMap?: string;
+    specularMap?: string;
+    cloudsMap?: string;
+    ringsMap?: string;
+  };
   atmosphere?: {
     color: string;
     intensity: number;
@@ -92,6 +101,8 @@ interface GameState {
   gameMode: GameMode;
   
   // Ship State
+  shipHealth: number;
+  shipStatus: 'intact' | 'damaged' | 'critical' | 'destroyed';
   shipPosition: THREE.Vector3;
   shipVelocity: THREE.Vector3;
   shipQuaternion: THREE.Quaternion;
@@ -101,6 +112,16 @@ interface GameState {
   gravityInfluence: number; // 0 to 1
   gravitySourceId: string | null;
   gravityVector: THREE.Vector3;
+  
+  // UI & Warnings
+  collisionWarning: boolean;
+  gravityWarning: boolean;
+  
+  // Collision & Visual Feedback
+  screenShake: number; // 0 to 1
+  lastImpactSeverity: number;
+  lastCollisionTime: number;
+  lastCollisionObject: string | null;
   
   // Navigation
   targetPlanetId: string | null;
@@ -131,6 +152,8 @@ interface GameState {
   objective: string;
   isPaused: boolean;
   weaponMode: 'safe' | 'armed';
+  flightMode: 'cruise' | 'precision';
+  controlSmoothing: number;
   currentWeaponId: string;
   weaponEnergy: number; // 0 to 100
   isFiring: boolean;
@@ -165,6 +188,8 @@ interface GameState {
   setGravityInfluence: (value: number) => void;
   setGravitySourceId: (id: string | null) => void;
   setGravityVector: (vec: THREE.Vector3) => void;
+  setCollisionWarning: (active: boolean) => void;
+  setGravityWarning: (active: boolean) => void;
   setCameraMode: (mode: CameraMode) => void;
   setGraphicsQuality: (quality: GraphicsQuality) => void;
   setEffectIntensity: (intensity: number) => void;
@@ -181,6 +206,8 @@ interface GameState {
   setObjective: (text: string) => void;
   setPaused: (paused: boolean) => void;
   setWeaponMode: (mode: 'safe' | 'armed') => void;
+  setFlightMode: (mode: 'cruise' | 'precision') => void;
+  setControlSmoothing: (value: number) => void;
   setWeapon: (id: string) => void;
   setIsFiring: (active: boolean) => void;
   setIsCharging: (active: boolean) => void;
@@ -190,12 +217,20 @@ interface GameState {
   destroyPlanet: (id: string) => void;
   updatePlanetPosition: (id: string, pos: THREE.Vector3) => void;
   updateSimulationTime: (delta: number) => void;
+  
+  // Ship Actions
+  damageShip: (amount: number, impactSeverity: number, objectName: string) => void;
+  repairShip: (amount: number) => void;
+  resetShip: () => void;
+  setScreenShake: (intensity: number) => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
   status: 'menu',
   gameMode: 'explorer',
   
+  shipHealth: 100,
+  shipStatus: 'intact',
   shipPosition: new THREE.Vector3(0, 0, 500),
   shipVelocity: new THREE.Vector3(0, 0, 0),
   shipQuaternion: new THREE.Quaternion(),
@@ -205,6 +240,14 @@ export const useGameStore = create<GameState>((set) => ({
   gravityInfluence: 0,
   gravitySourceId: null,
   gravityVector: new THREE.Vector3(),
+  
+  collisionWarning: false,
+  gravityWarning: false,
+  
+  screenShake: 0,
+  lastImpactSeverity: 0,
+  lastCollisionTime: 0,
+  lastCollisionObject: null,
   
   targetPlanetId: null,
   timeScale: 1,
@@ -231,6 +274,8 @@ export const useGameStore = create<GameState>((set) => ({
   objective: 'Select Earth to begin mission',
   isPaused: false,
   weaponMode: 'safe',
+  flightMode: 'cruise',
+  controlSmoothing: 0.5,
   currentWeaponId: 'fracture-beam',
   weaponEnergy: 100,
   isFiring: false,
@@ -272,6 +317,9 @@ export const useGameStore = create<GameState>((set) => ({
   setGravitySourceId: (gravitySourceId) => set({ gravitySourceId }),
   setGravityVector: (gravityVector) => set({ gravityVector: gravityVector.clone() }),
   
+  setCollisionWarning: (collisionWarning) => set({ collisionWarning }),
+  setGravityWarning: (gravityWarning) => set({ gravityWarning }),
+  
   setCameraMode: (mode) => set({ cameraMode: mode }),
   
   setGraphicsQuality: (quality) => set({ graphicsQuality: quality }),
@@ -304,7 +352,8 @@ export const useGameStore = create<GameState>((set) => ({
   setPaused: (paused) => set({ isPaused: paused }),
   
   setWeaponMode: (mode: 'safe' | 'armed') => set({ weaponMode: mode }),
-  
+  setFlightMode: (mode) => set({ flightMode: mode }),
+  setControlSmoothing: (value) => set({ controlSmoothing: value }),
   setWeapon: (id) => set({ currentWeaponId: id }),
   setIsFiring: (isFiring) => set({ isFiring }),
   setIsCharging: (isCharging) => set({ isCharging }),
@@ -378,4 +427,46 @@ export const useGameStore = create<GameState>((set) => ({
   updateSimulationTime: (delta) => set((state) => ({ 
     simulationTime: state.simulationTime + delta * state.timeScale 
   })),
+
+  damageShip: (amount, impactSeverity, objectName) => set((state) => {
+    const newHealth = Math.max(0, state.shipHealth - amount);
+    let newStatus: 'intact' | 'damaged' | 'critical' | 'destroyed' = 'intact';
+    
+    if (newHealth <= 0) newStatus = 'destroyed';
+    else if (newHealth < 25) newStatus = 'critical';
+    else if (newHealth < 75) newStatus = 'damaged';
+    
+    return {
+      shipHealth: newHealth,
+      shipStatus: newStatus,
+      screenShake: Math.min(1, state.screenShake + impactSeverity),
+      lastImpactSeverity: impactSeverity,
+      lastCollisionTime: state.simulationTime,
+      lastCollisionObject: objectName
+    };
+  }),
+
+  repairShip: (amount) => set((state) => {
+    const newHealth = Math.min(100, state.shipHealth + amount);
+    let newStatus: 'intact' | 'damaged' | 'critical' | 'destroyed' = 'intact';
+    
+    if (newHealth < 25) newStatus = 'critical';
+    else if (newHealth < 75) newStatus = 'damaged';
+    
+    return {
+      shipHealth: newHealth,
+      shipStatus: newStatus
+    };
+  }),
+
+  resetShip: () => set((state) => ({
+    shipHealth: 100,
+    shipStatus: 'intact',
+    shipPosition: new THREE.Vector3(0, 0, 500),
+    shipVelocity: new THREE.Vector3(0, 0, 0),
+    screenShake: 0,
+    lastCollisionObject: null
+  })),
+
+  setScreenShake: (intensity) => set({ screenShake: intensity })
 }));

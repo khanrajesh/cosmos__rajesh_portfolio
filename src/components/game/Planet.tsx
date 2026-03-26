@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { useGameStore, PlanetData } from '../../store/useGameStore';
 import { DebrisSystem } from './DebrisSystem';
 import { AlertTriangle } from 'lucide-react';
-import { Moon, Atmosphere, Clouds, Rings, TargetHighlight, GravityWell } from './PlanetComponents';
+import { Moon, Atmosphere, Clouds, Rings, TargetHighlight, GravityWell, ScannedOverlay } from './PlanetComponents';
 
 interface PlanetProps {
   data: PlanetData;
@@ -30,6 +30,30 @@ export const Planet = ({ data }: PlanetProps) => {
   const state = planetStates[data.id] || { damage: 0, isCritical: false, health: 100, isDestroyed: false };
   const isScanned = scannedPlanetIds.includes(data.id);
   const visuals = data.visuals;
+
+  // Texture loading with fallback
+  const textures = useMemo(() => {
+    if (!visuals.textures) return {};
+    const loader = new THREE.TextureLoader();
+    const result: any = {};
+    
+    Object.entries(visuals.textures).forEach(([key, path]) => {
+      if (path) {
+        result[key] = loader.load(path, undefined, undefined, (err) => {
+          console.warn(`Failed to load texture ${key} for ${data.name}: ${path}`, err);
+        });
+        // Set texture properties for better realism
+        if (result[key]) {
+          result[key].anisotropy = 8;
+          if (key === 'map' || key === 'emissiveMap') {
+            result[key].colorSpace = THREE.SRGBColorSpace;
+          }
+        }
+      }
+    });
+    
+    return result;
+  }, [visuals.textures, data.name]);
 
   const damageStage = useMemo(() => {
     const d = state.damage;
@@ -67,9 +91,13 @@ export const Planet = ({ data }: PlanetProps) => {
   const surfaceMaterial = useMemo(() => {
     const mat = new THREE.MeshStandardMaterial({
       color: visuals.surfaceColor,
+      map: textures.map || null,
+      normalMap: textures.normalMap || null,
+      roughnessMap: textures.roughnessMap || null,
       roughness: visuals.roughness ?? 0.7,
       metalness: visuals.metalness ?? 0.2,
       emissive: visuals.emissiveColor ?? '#000000',
+      emissiveMap: textures.emissiveMap || null,
       emissiveIntensity: visuals.emissiveIntensity ?? 0,
     });
 
@@ -79,16 +107,19 @@ export const Planet = ({ data }: PlanetProps) => {
         ? (visuals.damageConfig.stormColor || visuals.damageConfig.glowColor)
         : visuals.damageConfig.glowColor;
       
-      mat.emissive.set(damageColor);
-      mat.emissiveIntensity = state.damage * 5;
+      // Blend emissive with damage
+      const baseEmissive = new THREE.Color(visuals.emissiveColor || '#000000');
+      const damageEmissive = new THREE.Color(damageColor);
+      mat.emissive.copy(baseEmissive).lerp(damageEmissive, state.damage);
+      mat.emissiveIntensity = (visuals.emissiveIntensity ?? 0) + state.damage * 8;
       
       if (visuals.type === 'rocky') {
-        mat.color.lerp(new THREE.Color(visuals.damageConfig.crackColor), state.damage * 0.5);
+        mat.color.lerp(new THREE.Color(visuals.damageConfig.crackColor), state.damage * 0.6);
       }
     }
 
     return mat;
-  }, [visuals, state.damage]);
+  }, [visuals, state.damage, textures]);
 
   if (state.isDestroyed) {
     return (
@@ -155,11 +186,23 @@ export const Planet = ({ data }: PlanetProps) => {
           )}
 
           {visuals.clouds && (
-            <Clouds config={visuals.clouds} radius={data.radius} />
+            <Clouds 
+              config={visuals.clouds} 
+              radius={data.radius} 
+              texturePath={visuals.textures?.cloudsMap} 
+            />
           )}
 
           {visuals.rings && (
-            <Rings config={visuals.rings} radius={data.radius} />
+            <Rings 
+              config={visuals.rings} 
+              radius={data.radius} 
+              texturePath={visuals.textures?.ringsMap} 
+            />
+          )}
+
+          {isScanned && (
+            <ScannedOverlay radius={data.radius} />
           )}
 
           {isTarget && (

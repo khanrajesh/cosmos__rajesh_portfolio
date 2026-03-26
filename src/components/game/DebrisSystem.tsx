@@ -135,6 +135,16 @@ export const DebrisSystem = ({ id, position, radius, color, startTime }: DebrisS
         </bufferGeometry>
         <pointsMaterial color={color} size={1.5} transparent opacity={0.6} blending={THREE.AdditiveBlending} sizeAttenuation />
       </points>
+
+      {/* Explosion Flash */}
+      {elapsed < 1 && (
+        <pointLight 
+          color={color} 
+          intensity={Math.max(0, (1 - elapsed) * 20)} 
+          distance={radius * 10} 
+          decay={2} 
+        />
+      )}
     </group>
   );
 };

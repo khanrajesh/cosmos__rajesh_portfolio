@@ -8,13 +8,45 @@ interface ShipModelProps {
   boostIntensity: number;
   rotationVelocity: THREE.Vector2; // x: pitch, y: yaw
   strafeVelocity: THREE.Vector2; // x: horizontal, y: vertical
+  shipHealth: number;
 }
+
+const DamageSparks = ({ shipHealth }: { shipHealth: number }) => {
+  const sparksRef = useRef<THREE.Group>(null);
+  
+  useFrame((state) => {
+    if (!sparksRef.current) return;
+    const t = state.clock.getElapsedTime();
+    sparksRef.current.children.forEach((child, i) => {
+      child.position.set(
+        Math.sin(t * (5 + i)) * 0.5, 
+        Math.cos(t * (4 + i)) * 0.3, 
+        Math.sin(t * (3 + i)) * 1.5
+      );
+      const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      mat.emissiveIntensity = 10 + Math.sin(t * 30) * 5;
+    });
+  });
+
+  return (
+    <group ref={sparksRef}>
+      {[...Array(3)].map((_, i) => (
+        <mesh key={i}>
+          <sphereGeometry args={[0.05, 4, 4]} />
+          <meshStandardMaterial color="#ffaa00" emissive="#ffaa00" />
+          <pointLight color="#ffaa00" intensity={shipHealth < 25 ? 2 : 0.5} distance={2} />
+        </mesh>
+      ))}
+    </group>
+  );
+};
 
 export const ShipModel = ({ 
   thrustIntensity, 
   boostIntensity, 
   rotationVelocity, 
-  strafeVelocity 
+  strafeVelocity,
+  shipHealth
 }: ShipModelProps) => {
   const groupRef = useRef<THREE.Group>(null);
   const engineRef = useRef<THREE.Group>(null);
@@ -23,20 +55,20 @@ export const ShipModel = ({
   // Materials
   const materials = useMemo(() => ({
     hull: new THREE.MeshStandardMaterial({ 
-      color: '#2a2a2e', 
-      metalness: 0.9, 
-      roughness: 0.2,
-      envMapIntensity: 1
+      color: '#ffffff', // Changed to white
+      metalness: 0.6, 
+      roughness: 0.3,
+      envMapIntensity: 1.5
     }),
     panels: new THREE.MeshStandardMaterial({ 
-      color: '#151518', 
-      metalness: 0.7, 
-      roughness: 0.5 
+      color: '#d0d0d0', // Light gray panels for contrast on white hull
+      metalness: 0.8, 
+      roughness: 0.4 
     }),
     cockpit: new THREE.MeshStandardMaterial({ 
       color: '#00ffff', 
       transparent: true, 
-      opacity: 0.4, 
+      opacity: 0.6, 
       metalness: 1, 
       roughness: 0 
     }),
@@ -49,78 +81,100 @@ export const ShipModel = ({
     navGreen: new THREE.MeshBasicMaterial({ color: '#00ff00' }),
   }), []);
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
     
     if (groupRef.current) {
       // Dynamic tilt based on rotation and strafe
-      const targetTiltZ = -rotationVelocity.x * 0.3 - strafeVelocity.x * 0.2;
-      const targetTiltX = -rotationVelocity.y * 0.2 + strafeVelocity.y * 0.1;
+      // Yaw (rotationVelocity.y) and Strafe (strafeVelocity.x) should cause Roll (tiltZ)
+      // Pitch (rotationVelocity.x) and Vertical Strafe (strafeVelocity.y) should cause Pitch (tiltX)
+      const targetTiltZ = -rotationVelocity.y * 0.4 - strafeVelocity.x * 0.25;
+      const targetTiltX = -rotationVelocity.x * 0.3 + strafeVelocity.y * 0.15;
       
-      groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, targetTiltZ, 0.1);
-      groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, targetTiltX, 0.1);
+      // Frame-rate independent lerp
+      const tiltAlpha = 1 - Math.exp(-10 * delta);
+      groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, targetTiltZ, tiltAlpha);
+      groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, targetTiltX, tiltAlpha);
       
-      // Subtle idle breathing
-      groupRef.current.position.y = Math.sin(t * 0.5) * 0.05;
+      // Subtle idle breathing with slight roll
+      groupRef.current.position.y = Math.sin(t * 0.5) * 0.04;
+      groupRef.current.rotation.y = Math.sin(t * 0.3) * 0.01;
     }
 
     if (antennaRef.current) {
-      antennaRef.current.rotation.z = t * 0.5;
+      antennaRef.current.rotation.z = t * 0.8;
     }
 
     // Update emissive intensity
-    const engineColor = boostIntensity > 0.5 ? '#00ffff' : '#ff4400';
+    const isCritical = shipHealth < 30;
+    const engineColor = boostIntensity > 0.5 ? '#00ffff' : (isCritical && Math.sin(t * 20) > 0 ? '#ff0000' : '#ff4400');
     materials.emissive.color.set(engineColor);
     materials.emissive.emissive.set(engineColor);
-    materials.emissive.emissiveIntensity = 2 + thrustIntensity * 10 + boostIntensity * 20 + Math.sin(t * 10) * 0.5;
+    materials.emissive.emissiveIntensity = 2 + thrustIntensity * 12 + boostIntensity * 25 + Math.sin(t * 15) * 0.8;
   });
 
   return (
     <group ref={groupRef}>
-      <Float speed={1.5} rotationIntensity={0.1} floatIntensity={0.2}>
+      <Float speed={2} rotationIntensity={0.15} floatIntensity={0.3}>
         {/* --- MAIN FUSELAGE --- */}
         <mesh material={materials.hull} castShadow>
-          <capsuleGeometry args={[0.6, 2.5, 4, 16]} />
+          <capsuleGeometry args={[0.55, 2.8, 6, 24]} />
         </mesh>
         
-        {/* Top Spine */}
-        <mesh position={[0, 0.4, -0.5]} material={materials.panels}>
-          <boxGeometry args={[0.3, 0.2, 2.5]} />
+        {/* Top Spine - More aggressive profile */}
+        <mesh position={[0, 0.45, -0.2]} material={materials.panels}>
+          <boxGeometry args={[0.25, 0.3, 3.2]} />
         </mesh>
 
         {/* --- COCKPIT --- */}
-        <group position={[0, 0.3, 1.2]}>
+        <group position={[0, 0.35, 1.4]}>
           <mesh material={materials.cockpit}>
-            <sphereGeometry args={[0.45, 32, 32, 0, Math.PI * 2, 0, Math.PI / 1.8]} />
+            <sphereGeometry args={[0.4, 32, 32, 0, Math.PI * 2, 0, Math.PI / 1.6]} />
           </mesh>
           {/* Interior Detail */}
-          <mesh position={[0, -0.1, 0]} material={materials.panels}>
-            <boxGeometry args={[0.5, 0.1, 0.6]} />
+          <mesh position={[0, -0.15, 0]} material={materials.panels}>
+            <boxGeometry args={[0.4, 0.1, 0.7]} />
           </mesh>
         </group>
 
+        {/* --- FORWARD CANARDS (Small front wings) --- */}
+        {[-1, 1].map((side) => (
+          <mesh key={`canard-${side}`} position={[side * 0.8, 0.1, 1.8]} rotation={[0, side * 0.2, 0]}>
+            <boxGeometry args={[0.6, 0.02, 0.4]} />
+            <meshStandardMaterial color="#ffffff" metalness={0.7} roughness={0.3} />
+          </mesh>
+        ))}
+
         {/* --- ENGINE SECTION --- */}
-        <group position={[0, 0, -1.8]}>
+        <group position={[0, 0, -2.1]}>
           {/* Main Engine Housing */}
           <mesh material={materials.panels} rotation={[Math.PI / 2, 0, 0]}>
-            <cylinderGeometry args={[0.7, 0.8, 1.2, 8]} />
+            <cylinderGeometry args={[0.6, 0.85, 1.4, 12]} />
           </mesh>
           
+          {/* Engine Winglets */}
+          {[-1, 1].map((side) => (
+            <mesh key={`eng-wing-${side}`} position={[side * 0.9, 0, -0.2]} rotation={[0, 0, side * 0.4]}>
+              <boxGeometry args={[0.8, 0.05, 0.8]} />
+              <meshStandardMaterial color="#d0d0d0" metalness={0.8} roughness={0.2} />
+            </mesh>
+          ))}
+
           {/* Dual Exhausts */}
-          {[-0.35, 0.35].map((x, i) => (
-            <group key={i} position={[x, 0, -0.4]}>
+          {[-0.38, 0.38].map((x, i) => (
+            <group key={i} position={[x, 0, -0.5]}>
               <mesh material={materials.hull} rotation={[Math.PI / 2, 0, 0]}>
-                <cylinderGeometry args={[0.25, 0.3, 0.6, 16]} />
+                <cylinderGeometry args={[0.22, 0.32, 0.8, 16]} />
               </mesh>
               {/* Emissive Core */}
-              <mesh position={[0, 0, -0.3]} material={materials.emissive}>
-                <sphereGeometry args={[0.2, 16, 16]} />
+              <mesh position={[0, 0, -0.4]} material={materials.emissive}>
+                <sphereGeometry args={[0.18, 16, 16]} />
               </mesh>
               {/* Engine Light */}
               <pointLight 
                 color={boostIntensity > 0.5 ? '#00ffff' : '#ff4400'} 
-                intensity={(thrustIntensity + boostIntensity * 2) * 5} 
-                distance={10} 
+                intensity={(thrustIntensity + boostIntensity * 2) * 8} 
+                distance={12} 
               />
             </group>
           ))}
@@ -128,66 +182,79 @@ export const ShipModel = ({
 
         {/* --- SIDE THRUSTER PODS --- */}
         {[-1, 1].map((side) => (
-          <group key={side} position={[side * 1.1, -0.1, 0.2]}>
+          <group key={side} position={[side * 1.2, -0.15, 0.4]}>
             {/* Pod Body */}
             <mesh material={materials.hull} rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.25, 0.2, 1.2, 12]} />
+              <cylinderGeometry args={[0.22, 0.18, 1.5, 12]} />
             </mesh>
             {/* Structural Pylon */}
-            <mesh position={[-side * 0.4, 0, 0]} material={materials.panels}>
-              <boxGeometry args={[0.6, 0.1, 0.4]} />
+            <mesh position={[-side * 0.5, 0, 0]} material={materials.panels}>
+              <boxGeometry args={[0.8, 0.08, 0.5]} />
             </mesh>
             
             {/* Front Maneuvering Thrusters */}
-            <mesh position={[0, 0, 0.5]} material={materials.emissive} scale={[0.5, 0.5, 0.5]}>
-              <sphereGeometry args={[0.15, 8, 8]} />
+            <mesh position={[0, 0, 0.6]} material={materials.emissive} scale={[0.5, 0.5, 0.5]}>
+              <sphereGeometry args={[0.12, 8, 8]} />
             </mesh>
 
             {/* Side Thruster Flash (Visual only) */}
             {(Math.abs(strafeVelocity.x) > 0.1 || Math.abs(rotationVelocity.y) > 0.1) && (
               <mesh position={[side * 0.2, 0, 0]} material={materials.emissive} scale={[0.4, 0.4, 0.4]}>
-                <sphereGeometry args={[0.2, 8, 8]} />
+                <sphereGeometry args={[0.18, 8, 8]} />
               </mesh>
             )}
           </group>
         ))}
 
-        {/* --- STABILIZER FINS --- */}
-        {/* Horizontal Wings */}
-        <mesh position={[0, 0, -0.8]} rotation={[0, 0, 0]}>
-          <boxGeometry args={[4.5, 0.05, 1.2]} />
-          <meshStandardMaterial color="#2a2a2e" metalness={0.8} roughness={0.3} />
-        </mesh>
-        {/* Vertical Fin */}
-        <mesh position={[0, 0.6, -1.2]} rotation={[0, 0, 0]}>
-          <boxGeometry args={[0.05, 0.8, 1.5]} />
-          <meshStandardMaterial color="#151518" metalness={0.8} roughness={0.3} />
+        {/* --- MAIN WINGS --- */}
+        <group position={[0, 0, -0.6]}>
+          {/* Horizontal Wings - Tapered look */}
+          <mesh rotation={[0, 0, 0]}>
+            <boxGeometry args={[5.2, 0.04, 1.4]} />
+            <meshStandardMaterial color="#ffffff" metalness={0.7} roughness={0.3} />
+          </mesh>
+          {/* Wingtip Winglets */}
+          {[-1, 1].map((side) => (
+            <mesh key={`wingtip-${side}`} position={[side * 2.6, 0.2, 0]} rotation={[0, 0, side * 0.8]}>
+              <boxGeometry args={[0.04, 0.6, 1.0]} />
+              <meshStandardMaterial color="#ffffff" metalness={0.7} roughness={0.3} />
+            </mesh>
+          ))}
+        </group>
+
+        {/* Vertical Fin - More aggressive */}
+        <mesh position={[0, 0.7, -1.4]} rotation={[-0.2, 0, 0]}>
+          <boxGeometry args={[0.04, 1.0, 1.8]} />
+          <meshStandardMaterial color="#d0d0d0" metalness={0.8} roughness={0.3} />
         </mesh>
 
         {/* --- SENSOR MODULE / ANTENNA --- */}
-        <group position={[0, 0.6, 0.2]} ref={antennaRef}>
+        <group position={[0, 0.7, 0.4]} ref={antennaRef}>
           <mesh material={materials.panels}>
-            <cylinderGeometry args={[0.05, 0.05, 0.4, 8]} />
+            <cylinderGeometry args={[0.04, 0.04, 0.5, 8]} />
           </mesh>
-          <mesh position={[0, 0.2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-            <torusGeometry args={[0.3, 0.02, 8, 32]} />
-            <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={1} />
+          <mesh position={[0, 0.25, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[0.25, 0.015, 8, 32]} />
+            <meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={1.5} />
           </mesh>
         </group>
 
         {/* --- NAVIGATION LIGHTS --- */}
         {/* Front Left (Red) */}
-        <mesh position={[-2.1, 0, -0.8]} material={materials.navRed}>
-          <sphereGeometry args={[0.08, 8, 8]} />
+        <mesh position={[-2.6, 0.3, -0.6]} material={materials.navRed}>
+          <sphereGeometry args={[0.07, 8, 8]} />
         </mesh>
         {/* Front Right (Green) */}
-        <mesh position={[2.1, 0, -0.8]} material={materials.navGreen}>
-          <sphereGeometry args={[0.08, 8, 8]} />
+        <mesh position={[2.6, 0.3, -0.6]} material={materials.navGreen}>
+          <sphereGeometry args={[0.07, 8, 8]} />
         </mesh>
         {/* Tail (Blinking Red) */}
-        <mesh position={[0, 1.3, -1.8]} material={materials.navRed}>
-          <sphereGeometry args={[0.1, 8, 8]} />
+        <mesh position={[0, 1.6, -2.2]} material={materials.navRed}>
+          <sphereGeometry args={[0.09, 8, 8]} />
         </mesh>
+
+        {/* --- DAMAGE SPARKS --- */}
+        {shipHealth < 50 && <DamageSparks shipHealth={shipHealth} />}
       </Float>
     </group>
   );

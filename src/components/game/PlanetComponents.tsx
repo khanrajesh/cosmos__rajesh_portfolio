@@ -105,55 +105,93 @@ export const Moon = React.memo(({ data, parentPlanetId }: { data: MoonData; pare
 
 export const Atmosphere = React.memo(({ config, radius }: { config: NonNullable<PlanetVisualConfig['atmosphere']>; radius: number }) => {
   return (
-    <mesh scale={[config.intensity, config.intensity, config.intensity]}>
-      <sphereGeometry args={[radius, 32, 32]} />
-      <meshStandardMaterial 
-        color={config.color} 
-        transparent 
-        opacity={config.opacity} 
-        side={THREE.BackSide}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-      />
-    </mesh>
+    <group>
+      {/* Inner Glow */}
+      <mesh scale={[1.01, 1.01, 1.01]}>
+        <sphereGeometry args={[radius, 64, 64]} />
+        <meshStandardMaterial 
+          color={config.color} 
+          transparent 
+          opacity={config.opacity * 0.5} 
+          side={THREE.FrontSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+      {/* Outer Glow Shell */}
+      <mesh scale={[config.intensity, config.intensity, config.intensity]}>
+        <sphereGeometry args={[radius, 64, 64]} />
+        <meshStandardMaterial 
+          color={config.color} 
+          transparent 
+          opacity={config.opacity} 
+          side={THREE.BackSide}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
   );
 });
 
-export const Clouds = React.memo(({ config, radius }: { config: NonNullable<PlanetVisualConfig['clouds']>; radius: number }) => {
+export const Clouds = React.memo(({ config, radius, texturePath }: { config: NonNullable<PlanetVisualConfig['clouds']>; radius: number; texturePath?: string }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const simulationTime = useGameStore((state) => state.simulationTime);
+  
+  // Load texture with fallback
+  const texture = useMemo(() => {
+    if (!texturePath) return null;
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load(texturePath, undefined, undefined, (err) => {
+      console.warn(`Failed to load cloud texture: ${texturePath}`, err);
+    });
+    return tex;
+  }, [texturePath]);
 
   useFrame(() => {
     if (meshRef.current) {
-      meshRef.current.rotation.y = simulationTime * config.speed * 0.1;
-      meshRef.current.rotation.x = simulationTime * config.speed * 0.05;
+      meshRef.current.rotation.y = simulationTime * config.speed * 0.05;
+      meshRef.current.rotation.z = simulationTime * config.speed * 0.02;
     }
   });
 
   return (
-    <mesh ref={meshRef} scale={[1.02, 1.02, 1.02]}>
-      <sphereGeometry args={[radius, 32, 32]} />
+    <mesh ref={meshRef} scale={[1.015, 1.015, 1.015]}>
+      <sphereGeometry args={[radius + 0.05, 64, 64]} />
       <meshStandardMaterial 
+        map={texture}
         color={config.color} 
         transparent 
         opacity={config.opacity} 
-        alphaTest={0.1}
+        alphaTest={0.05}
         depthWrite={false}
+        blending={THREE.AdditiveBlending}
       />
     </mesh>
   );
 });
 
-export const Rings = React.memo(({ config, radius }: { config: NonNullable<PlanetVisualConfig['rings']>; radius: number }) => {
+export const Rings = React.memo(({ config, radius, texturePath }: { config: NonNullable<PlanetVisualConfig['rings']>; radius: number; texturePath?: string }) => {
+  const texture = useMemo(() => {
+    if (!texturePath) return null;
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load(texturePath, undefined, undefined, (err) => {
+      console.warn(`Failed to load rings texture: ${texturePath}`, err);
+    });
+    return tex;
+  }, [texturePath]);
+
   return (
-    <mesh rotation={[Math.PI / 2.5, 0, 0]}>
+    <mesh rotation={[Math.PI / 2.2, 0, 0]}>
       <ringGeometry args={[radius * config.innerRadius, radius * config.outerRadius, 128]} />
       <meshStandardMaterial 
+        map={texture}
         color={config.color} 
         transparent 
         opacity={config.opacity} 
         side={THREE.DoubleSide}
         depthWrite={false}
+        alphaTest={0.05}
       />
     </mesh>
   );
@@ -176,16 +214,19 @@ export const TargetHighlight = React.memo(({ radius, isScanning, scanProgress }:
 
   return (
     <group>
+      {/* Main Targeting Ring */}
       <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
         <ringGeometry args={[radius + 2, radius + 2.2, 64]} />
         <meshBasicMaterial color="#00ffff" transparent opacity={0.6} side={THREE.DoubleSide} />
       </mesh>
 
+      {/* Outer Pulse Ring */}
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <ringGeometry args={[radius + 2.5, radius + 2.6, 64]} />
         <meshBasicMaterial color="#00ffff" transparent opacity={0.2} side={THREE.DoubleSide} />
       </mesh>
 
+      {/* Corner Brackets */}
       <group ref={bracketsRef}>
         {[-1, 1].map((x) => (
           [-1, 1].map((y) => (
@@ -203,15 +244,36 @@ export const TargetHighlight = React.memo(({ radius, isScanning, scanProgress }:
         ))}
       </group>
 
+      {/* Scanning Progress Ring */}
       {isScanning && (
         <group rotation={[Math.PI / 2, 0, 0]}>
           <mesh scale={1 + (scanProgress / 100) * 0.5}>
+            <ringGeometry args={[radius + 1.5, radius + 1.8, 64, 1, 0, (scanProgress / 100) * Math.PI * 2]} />
+            <meshBasicMaterial color="#ff8800" transparent opacity={0.8} side={THREE.DoubleSide} />
+          </mesh>
+          {/* Background for progress */}
+          <mesh>
             <ringGeometry args={[radius + 1.5, radius + 1.8, 64]} />
-            <meshBasicMaterial color="#ff8800" transparent opacity={0.4} side={THREE.DoubleSide} />
+            <meshBasicMaterial color="#ff8800" transparent opacity={0.1} side={THREE.DoubleSide} />
           </mesh>
         </group>
       )}
     </group>
+  );
+});
+
+export const ScannedOverlay = React.memo(({ radius }: { radius: number }) => {
+  return (
+    <mesh scale={[1.005, 1.005, 1.005]}>
+      <sphereGeometry args={[radius, 64, 64]} />
+      <meshBasicMaterial 
+        color="#00ffff" 
+        wireframe 
+        transparent 
+        opacity={0.05} 
+        depthWrite={false}
+      />
+    </mesh>
   );
 });
 

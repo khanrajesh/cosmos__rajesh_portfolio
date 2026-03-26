@@ -18,13 +18,22 @@ export const Ship = () => {
     isAutoPilot, 
     setAutoPilot,
     cameraSensitivity,
-    effectIntensity
+    effectIntensity,
+    shipHealth,
+    shipStatus,
+    damageShip,
+    resetShip,
+    screenShake,
+    setScreenShake,
+    planetPositions,
+    destructionEvents,
+    flightMode,
+    controlSmoothing
   } = useGameStore();
 
   // Physics refs
   const velocity = useRef(new THREE.Vector3());
   const position = useRef(new THREE.Vector3(0, 0, 500));
-  const rotation = useRef(new THREE.Euler(0, 0, 0));
   const quaternion = useRef(new THREE.Quaternion());
   
   // Visual state
@@ -32,12 +41,56 @@ export const Ship = () => {
   const [boostIntensity, setBoostIntensity] = useState(0);
   const [rotationVelocity, setRotationVelocity] = useState(new THREE.Vector2());
   const [strafeVelocity, setStrafeVelocity] = useState(new THREE.Vector2());
+  const [currentRoll, setCurrentRoll] = useState(0);
+
+  // Smooth input refs
+  const smoothedInput = useRef({
+    thrust: 0,
+    rotate: new THREE.Vector2(),
+    strafe: new THREE.Vector2(),
+    roll: 0
+  });
 
   // Auto-pilot state
   const autoPilotPhase = useRef<'none' | 'approaching' | 'orbiting'>('none');
+  
+  // Collision state
+  const lastCollisionTime = useRef(0);
+  const collisionCooldown = 0.5; // seconds
+  const isStunned = useRef(false);
+  const stunDuration = 0.3;
+  const respawnTimer = useRef<number | null>(null);
 
   useFrame((state, delta) => {
     if (!meshRef.current || status !== 'playing') return;
+
+    // --- SCREEN SHAKE ---
+    if (screenShake > 0) {
+      const shakeX = (Math.random() - 0.5) * screenShake * 2;
+      const shakeY = (Math.random() - 0.5) * screenShake * 2;
+      state.camera.position.x += shakeX;
+      state.camera.position.y += shakeY;
+      setScreenShake(Math.max(0, screenShake - delta * 2));
+    }
+
+    // --- DEATH HANDLING ---
+    if (shipStatus === 'destroyed') {
+      if (respawnTimer.current === null) {
+        respawnTimer.current = simulationTime + 3; // 3 seconds to respawn
+      }
+      
+      if (simulationTime >= respawnTimer.current) {
+        resetShip();
+        position.current.copy(useGameStore.getState().shipPosition);
+        velocity.current.set(0, 0, 0);
+        respawnTimer.current = null;
+      }
+      
+      // Still update position but no controls
+      position.current.add(velocity.current.clone().multiplyScalar(delta));
+      meshRef.current.position.copy(position.current);
+      return;
+    }
 
     const targetPlanet = PLANETS.find(p => p.id === targetPlanetId);
     let targetPos = new THREE.Vector3();
@@ -62,7 +115,17 @@ export const Ship = () => {
     let maxInfluence = 0;
     let dominantSourceId: string | null = null;
     const totalGravityForce = new THREE.Vector3();
-    const { orbitAssist, setGravityInfluence, setGravitySourceId, setGravityVector } = useGameStore.getState();
+    const { 
+      orbitAssist, 
+      setGravityInfluence, 
+      setGravitySourceId, 
+      setGravityVector,
+      setCollisionWarning,
+      setGravityWarning
+    } = useGameStore.getState();
+
+    let nearCollision = false;
+    let nearGravity = false;
 
     PLANETS.forEach((planet) => {
       const angle = simulationTime * planet.speed;
@@ -78,6 +141,7 @@ export const Ship = () => {
       if (distance < planet.gravityRadius) {
         // Calculate influence (0 at radius, 1 at surface)
         const influence = Math.pow(1 - (distance / planet.gravityRadius), 1.5);
+        if (influence > 0.7) nearGravity = true;
         const planetState = useGameStore.getState().planetStates[planet.id];
         const massFactor = planetState?.isDestroyed ? 0.1 : 1.0;
         const strength = planet.gravityStrength * influence * massFactor;
@@ -99,6 +163,11 @@ export const Ship = () => {
     // Apply gravity to velocity
     if (totalGravityForce.length() > 0) {
       const finalForce = totalGravityForce.clone();
+      
+      // Gravity Compensation: Ship automatically fights gravity to stay controllable
+      const compensation = finalForce.clone().negate().multiplyScalar(SHIP_SPECS.gravityCompensation);
+      finalForce.add(compensation);
+
       if (orbitAssist) {
         // Orbit assist dampens the gravity pull to keep flight stable
         finalForce.multiplyScalar(0.2);
@@ -114,6 +183,7 @@ export const Ship = () => {
       setGravitySourceId(dominantSourceId);
     }
     setGravityVector(totalGravityForce);
+    setGravityWarning(nearGravity);
 
     if (isAutoPilot && targetPlanet) {
       // --- AUTO-PILOT LOGIC ---
@@ -132,7 +202,6 @@ export const Ship = () => {
         // Rotate towards target
         const targetQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
         quaternion.current.slerp(targetQuat, 2 * delta);
-        rotation.current.setFromQuaternion(quaternion.current);
 
         // Move forward
         const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion.current);
@@ -157,64 +226,181 @@ export const Ship = () => {
     } else {
       // --- MANUAL CONTROLS ---
       const sensitivity = 1 + cameraSensitivity;
-      if (keys.current['KeyW']) rotateDir.y = 1;
-      if (keys.current['KeyS']) rotateDir.y = -1;
-      if (keys.current['KeyA']) rotateDir.x = 1;
-      if (keys.current['KeyD']) rotateDir.x = -1;
-      if (keys.current['KeyQ']) rollDir = 1;
-      if (keys.current['KeyE']) rollDir = -1;
-
-      rotation.current.x += rotateDir.y * SHIP_SPECS.rotationSpeed * sensitivity * delta;
-      rotation.current.y += rotateDir.x * SHIP_SPECS.rotationSpeed * sensitivity * delta;
-      rotation.current.z += rollDir * SHIP_SPECS.rotationSpeed * sensitivity * delta;
-      quaternion.current.setFromEuler(rotation.current);
-
-      // Thrust & Boost
+      
+      // Determine current mode specs
       currentBoost = !!keys.current['ShiftLeft'];
+      const modeKey = currentBoost ? 'boost' : flightMode;
+      const modeSpecs = SHIP_SPECS.modes[modeKey];
+      
+      // Apply damage penalty
+      let controlPenalty = 1;
+      if (shipStatus === 'damaged') controlPenalty = 0.8;
+      if (shipStatus === 'critical') controlPenalty = 0.5;
+      
+      // Stun penalty after collision
+      if (simulationTime - lastCollisionTime.current < stunDuration) {
+        controlPenalty *= 0.2;
+      }
+
+      // Smooth inputs
+      const targetRotate = new THREE.Vector2();
+      if (keys.current['KeyW']) targetRotate.y = 1;
+      if (keys.current['KeyS']) targetRotate.y = -1;
+      if (keys.current['KeyA']) targetRotate.x = 1;
+      if (keys.current['KeyD']) targetRotate.x = -1;
+
+      const targetStrafe = new THREE.Vector2();
+      if (keys.current['ArrowLeft']) targetStrafe.x = 1;
+      if (keys.current['ArrowRight']) targetStrafe.x = -1;
+      if (keys.current['ArrowUp']) targetStrafe.y = -1;
+      if (keys.current['ArrowDown']) targetStrafe.y = 1;
+
+      let targetRoll = 0;
+      if (keys.current['KeyQ']) targetRoll = 1;
+      if (keys.current['KeyE']) targetRoll = -1;
+
+      // Auto-roll based on yaw (visual only, applied to model tilt later)
+      const autoRoll = -targetRotate.x * 0.5;
+      targetRoll += autoRoll;
+
+      // Apply smoothing (frame-rate independent)
+      const lerpSpeed = 5 + (1 - controlSmoothing) * 45; // 5 to 50 range
+      const alpha = 1 - Math.exp(-lerpSpeed * delta);
+      smoothedInput.current.rotate.lerp(targetRotate, alpha);
+      smoothedInput.current.strafe.lerp(targetStrafe, alpha);
+      smoothedInput.current.roll = THREE.MathUtils.lerp(smoothedInput.current.roll, targetRoll, alpha);
+
+      // --- 360 DEGREE FREE ROTATION (QUATERNION BASED) ---
+      const rotationAmount = modeSpecs.rotationSpeed * sensitivity * controlPenalty * delta;
+      
+      // Create local rotation quaternions
+      const pitchQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), smoothedInput.current.rotate.y * rotationAmount);
+      const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), smoothedInput.current.rotate.x * rotationAmount);
+      const rollQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), smoothedInput.current.roll * rotationAmount);
+      
+      // Apply rotations in local space
+      quaternion.current.multiply(pitchQuat);
+      quaternion.current.multiply(yawQuat);
+      quaternion.current.multiply(rollQuat);
+      quaternion.current.normalize();
+
+      // Thrust Logic
       const { weaponMode, setIsFiring } = useGameStore.getState();
+      let targetThrust = 0;
       
       if (weaponMode === 'armed') {
         if (keys.current['Space']) {
           setIsFiring(true);
-          currentThrust = 0;
+          targetThrust = 0;
         } else {
           setIsFiring(false);
-          if (keys.current['KeyW']) currentThrust = 0.5; // Allow some movement while armed
+          if (keys.current['KeyW']) targetThrust = 0.3;
         }
       } else {
-        if (keys.current['Space']) currentThrust = 1;
+        if (keys.current['Space']) targetThrust = 1;
       }
       
-      if (keys.current['KeyC']) currentThrust = -0.5;
+      if (keys.current['KeyC']) targetThrust = -0.5;
 
-      // Strafe
-      if (keys.current['ArrowLeft']) moveDir.x = 1;
-      if (keys.current['ArrowRight']) moveDir.x = -1;
-      if (keys.current['ArrowUp']) moveDir.y = -1;
-      if (keys.current['ArrowDown']) moveDir.y = 1;
-
-      const accel = SHIP_SPECS.acceleration * (currentBoost ? SHIP_SPECS.boostMultiplier : 1);
+      smoothedInput.current.thrust = THREE.MathUtils.lerp(smoothedInput.current.thrust, targetThrust, alpha);
+      
+      // Apply thrust curve
+      const thrustPower = Math.pow(Math.abs(smoothedInput.current.thrust), SHIP_SPECS.thrustCurve) * Math.sign(smoothedInput.current.thrust);
+      
+      const accel = modeSpecs.acceleration * controlPenalty;
       const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion.current);
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion.current);
       const up = new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion.current);
 
-      velocity.current.add(forward.multiplyScalar(currentThrust * accel * delta));
-      velocity.current.add(right.multiplyScalar(moveDir.x * SHIP_SPECS.strafeSpeed * delta));
-      velocity.current.add(up.multiplyScalar(moveDir.y * SHIP_SPECS.strafeSpeed * delta));
+      velocity.current.add(forward.multiplyScalar(thrustPower * accel * delta));
+      velocity.current.add(right.multiplyScalar(smoothedInput.current.strafe.x * SHIP_SPECS.strafeSpeed * controlPenalty * delta));
+      velocity.current.add(up.multiplyScalar(smoothedInput.current.strafe.y * SHIP_SPECS.strafeSpeed * controlPenalty * delta));
 
-      // Friction
-      velocity.current.multiplyScalar(SHIP_SPECS.friction);
+      // --- DAMPING ASSIST ---
+      // If no input, apply stronger damping to help the ship stop
+      const isMovingInput = Math.abs(targetThrust) > 0.01 || targetStrafe.length() > 0.01;
+      const activeDamping = isMovingInput ? modeSpecs.damping : Math.min(modeSpecs.damping, 0.95);
+      velocity.current.multiplyScalar(activeDamping);
 
       // Speed Cap
-      const maxSpeed = SHIP_SPECS.maxSpeed * (currentBoost ? SHIP_SPECS.boostMultiplier : 1);
-      if (velocity.current.length() > maxSpeed) {
-        velocity.current.setLength(maxSpeed);
+      if (velocity.current.length() > modeSpecs.maxSpeed) {
+        velocity.current.setLength(modeSpecs.maxSpeed);
       }
+
+      // Update visuals
+      currentThrust = smoothedInput.current.thrust;
+      rotateDir.copy(smoothedInput.current.rotate);
+      moveDir.set(smoothedInput.current.strafe.x, smoothedInput.current.strafe.y, 0);
+      rollDir = smoothedInput.current.roll;
     }
 
     // Update Position
     position.current.add(velocity.current.clone().multiplyScalar(delta));
     
+    // --- COLLISION DETECTION ---
+    const shipRadius = 1.5;
+    const warningBuffer = 15;
+    
+    // Check Planets
+    PLANETS.forEach(planet => {
+      const planetPos = planetPositions[planet.id];
+      if (!planetPos) return;
+      
+      const dist = position.current.distanceTo(planetPos);
+      const collisionDist = planet.radius + shipRadius;
+      
+      // Warning trigger
+      if (dist < collisionDist + warningBuffer) {
+        nearCollision = true;
+      }
+
+      if (simulationTime - lastCollisionTime.current > collisionCooldown) {
+        if (dist < collisionDist) {
+          const impactSpeed = velocity.current.length();
+          const normal = position.current.clone().sub(planetPos).normalize();
+          
+          // Calculate damage
+          const damage = Math.max(10, impactSpeed * 1.5);
+          damageShip(damage, Math.min(1, impactSpeed / 50), planet.name);
+          
+          // Bounce back with energy loss
+          velocity.current.reflect(normal).multiplyScalar(0.2);
+          position.current.copy(planetPos).add(normal.multiplyScalar(collisionDist + 0.1));
+          
+          lastCollisionTime.current = simulationTime;
+          setScreenShake(Math.min(1, impactSpeed / 40));
+        }
+      }
+    });
+
+    // Check Debris Zones (Destruction Events)
+    Object.values(destructionEvents).forEach(event => {
+      const dist = position.current.distanceTo(event.position);
+      const collisionDist = event.radius * 0.8 + shipRadius;
+      
+      if (dist < collisionDist + warningBuffer * 0.5) {
+        nearCollision = true;
+      }
+
+      if (simulationTime - lastCollisionTime.current > collisionCooldown) {
+        if (dist < collisionDist) {
+          const impactSpeed = velocity.current.length();
+          const normal = position.current.clone().sub(event.position).normalize();
+          
+          const damage = Math.max(5, impactSpeed * 0.8);
+          damageShip(damage, Math.min(0.6, impactSpeed / 40), `Debris from ${event.id}`);
+          
+          velocity.current.reflect(normal).multiplyScalar(0.4);
+          position.current.copy(event.position).add(normal.multiplyScalar(collisionDist + 0.1));
+          
+          lastCollisionTime.current = simulationTime;
+          setScreenShake(Math.min(0.8, impactSpeed / 30));
+        }
+      }
+    });
+
+    setCollisionWarning(nearCollision);
+
     // Apply to mesh
     meshRef.current.position.copy(position.current);
     meshRef.current.quaternion.copy(quaternion.current);
@@ -301,6 +487,7 @@ export const Ship = () => {
         boostIntensity={boostIntensity} 
         rotationVelocity={rotationVelocity}
         strafeVelocity={strafeVelocity}
+        shipHealth={shipHealth}
       />
     </group>
   );

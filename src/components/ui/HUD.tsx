@@ -5,7 +5,7 @@ import {
   Eye, EyeOff, Play, Pause, Navigation, Zap, Radar, BookOpen, Target, 
   Settings, Camera, Monitor, Sliders, X, ChevronRight, Info, 
   RotateCcw, Shield, Crosshair, Globe, Activity, Flame, ZapOff,
-  Dna, Atom, BarChart3
+  Dna, Atom, BarChart3, AlertTriangle
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { AnalysisPanel } from './AnalysisPanel';
@@ -64,7 +64,17 @@ export const HUD = () => {
     chargeProgress,
     planetStates,
     showAnalysisPanel,
-    setShowAnalysisPanel
+    setShowAnalysisPanel,
+    shipHealth,
+    shipStatus,
+    collisionWarning,
+    gravityWarning,
+    lastCollisionTime,
+    lastCollisionObject,
+    flightMode,
+    setFlightMode,
+    controlSmoothing,
+    setControlSmoothing
   } = useGameStore();
 
   const [showCodex, setShowCodex] = useState(false);
@@ -96,11 +106,20 @@ export const HUD = () => {
     ));
   }, [target, shipPosition, simulationTime]);
 
-  if (status !== 'playing') return null;
-
   const speed = Math.round(shipVelocity.length() * 10);
 
   const isScanned = target && scannedPlanetIds.includes(target.id);
+
+  const isRecentlyCollided = simulationTime - lastCollisionTime < 2;
+
+  const collisionVignette = useMemo(() => {
+    if (collisionWarning) return 'rgba(239, 68, 68, 0.3)';
+    if (isRecentlyCollided) return 'rgba(239, 68, 68, 0.15)';
+    if (gravityWarning) return 'rgba(249, 115, 22, 0.1)';
+    return 'transparent';
+  }, [collisionWarning, isRecentlyCollided, gravityWarning]);
+
+  if (status !== 'playing') return null;
 
   const cameraModes: { id: CameraMode; label: string }[] = [
     { id: 'pilot', label: 'PILOT' },
@@ -110,6 +129,15 @@ export const HUD = () => {
 
   return (
     <div className="fixed inset-0 pointer-events-none font-mono text-xs text-[#00ffff] select-none">
+      {/* --- COLLISION VIGNETTE --- */}
+      <div 
+        className="fixed inset-0 transition-colors duration-300 pointer-events-none z-0"
+        style={{ 
+          background: `radial-gradient(circle, transparent 40%, ${collisionVignette} 100%)`,
+          boxShadow: collisionWarning ? 'inset 0 0 100px rgba(239, 68, 68, 0.5)' : 'none'
+        }}
+      />
+
       {/* --- TOP BAR: MISSION & STATUS --- */}
       <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/80 to-transparent flex items-center justify-between px-8 border-t-2 border-[#00ffff]/30">
         <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-10">
@@ -142,6 +170,69 @@ export const HUD = () => {
       {/* --- WARNINGS: GRAVITATIONAL INSTABILITY --- */}
       <div className="absolute top-24 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
         <AnimatePresence>
+          {collisionWarning && shipStatus !== 'destroyed' && (
+            <motion.div
+              initial={{ opacity: 0, scale: 1.2 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-10 py-3 bg-red-600/60 border-2 border-red-400 backdrop-blur-xl flex items-center gap-4 shadow-[0_0_40px_rgba(239,68,68,0.4)]"
+            >
+              <AlertTriangle size={20} className="text-white animate-pulse" />
+              <span className="text-lg font-black tracking-[0.4em] text-white uppercase">COLLISION IMMINENT</span>
+            </motion.div>
+          )}
+
+          {gravityWarning && !collisionWarning && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="px-8 py-2 bg-orange-500/40 border border-orange-400 backdrop-blur-lg flex items-center gap-3 shadow-[0_0_20px_rgba(249,115,22,0.2)]"
+            >
+              <Activity size={14} className="text-orange-300 animate-pulse" />
+              <span className="text-[10px] font-bold tracking-[0.3em] text-orange-200 uppercase">HIGH GRAVITY WELL DETECTED</span>
+            </motion.div>
+          )}
+
+          {isRecentlyCollided && shipStatus !== 'destroyed' && !collisionWarning && (
+            <motion.div
+              initial={{ opacity: 0, scale: 1.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-8 py-4 bg-red-600/40 border-2 border-red-500 backdrop-blur-xl flex flex-col items-center gap-1 shadow-[0_0_50px_rgba(239,68,68,0.3)]"
+            >
+              <div className="flex items-center gap-3 text-white">
+                <AlertTriangle size={24} className="animate-bounce" />
+                <span className="text-xl font-black tracking-[0.3em] uppercase">COLLISION DETECTED</span>
+              </div>
+              <span className="text-[10px] font-bold text-red-200 tracking-widest uppercase">
+                IMPACT WITH {lastCollisionObject?.toUpperCase() || 'UNKNOWN OBJECT'}
+              </span>
+            </motion.div>
+          )}
+
+          {shipStatus === 'destroyed' && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="px-12 py-8 bg-red-900/80 border-4 border-red-500 backdrop-blur-2xl flex flex-col items-center gap-4 shadow-[0_0_100px_rgba(239,68,68,0.5)]"
+            >
+              <ZapOff size={48} className="text-red-500 animate-pulse" />
+              <div className="flex flex-col items-center">
+                <span className="text-3xl font-black tracking-[0.5em] text-white uppercase">VESSEL DESTROYED</span>
+                <span className="text-xs font-bold text-red-300 tracking-[0.2em] mt-2">INITIATING EMERGENCY RESPAWN PROTOCOL...</span>
+              </div>
+              <div className="w-64 h-1 bg-white/10 mt-4 rounded-full overflow-hidden">
+                <motion.div 
+                  className="h-full bg-red-500"
+                  initial={{ width: "0%" }}
+                  animate={{ width: "100%" }}
+                  transition={{ duration: 3, ease: "linear" }}
+                />
+              </div>
+            </motion.div>
+          )}
+
           {criticalPlanets.map(p => (
             <motion.div
               key={p.id}
@@ -188,7 +279,7 @@ export const HUD = () => {
           <div className="space-y-4">
             <div>
               <div className="flex justify-between items-end mb-1">
-                <span className="text-[9px] opacity-50 tracking-widest">VELOCITY</span>
+                <span className="text-[9px] opacity-50 tracking-widest">VELOCITY ({flightMode.toUpperCase()})</span>
                 <span className="text-[8px] opacity-30">KM/S</span>
               </div>
               <div className="text-4xl font-light tracking-tighter">{speed}</div>
@@ -198,6 +289,29 @@ export const HUD = () => {
                   animate={{ width: `${Math.min(speed / 5, 100)}%` }}
                 />
               </div>
+            </div>
+
+            <div className="pt-2 border-t border-white/5">
+              <div className="flex justify-between text-[8px] opacity-40 mb-1">
+                <span>HULL INTEGRITY</span>
+                <span className={shipHealth < 25 ? 'text-red-500 font-bold animate-pulse' : ''}>{Math.round(shipHealth)}%</span>
+              </div>
+              <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden border border-white/5">
+                <motion.div 
+                  className={`h-full ${shipHealth < 25 ? 'bg-red-500 shadow-[0_0_10px_#ef4444]' : shipHealth < 75 ? 'bg-orange-500' : 'bg-[#00ffff]'}`}
+                  animate={{ width: `${shipHealth}%` }}
+                />
+              </div>
+              {shipStatus !== 'intact' && (
+                <motion.div 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={`text-[7px] mt-1 font-bold uppercase tracking-widest flex items-center gap-2 ${shipStatus === 'critical' ? 'text-red-500 animate-pulse' : 'text-orange-400'}`}
+                >
+                  <AlertTriangle size={8} />
+                  STATUS: {shipStatus}
+                </motion.div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
@@ -246,6 +360,21 @@ export const HUD = () => {
 
         {/* Action Bar */}
         <div className="p-2 bg-black/60 border border-white/10 backdrop-blur-md rounded flex flex-col gap-2 pointer-events-auto">
+          <button 
+            onClick={() => setFlightMode(flightMode === 'cruise' ? 'precision' : 'cruise')}
+            className={`flex items-center gap-3 p-3 transition-all rounded ${
+              flightMode === 'precision' 
+              ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' 
+              : 'hover:bg-white/5 text-white/60'
+            }`}
+          >
+            <Zap size={16} />
+            <div className="flex flex-col items-start">
+              <span className="text-[10px] font-bold tracking-widest">FLIGHT MODE</span>
+              <span className="text-[7px] opacity-50 uppercase">{flightMode} MODE</span>
+            </div>
+          </button>
+
           <button 
             onClick={() => setIsScanning(!isScanning)}
             disabled={!target || distance > 100}
@@ -617,6 +746,19 @@ export const HUD = () => {
                     type="range" min="0" max="1" step="0.1" 
                     value={effectIntensity}
                     onChange={(e) => setEffectIntensity(parseFloat(e.target.value))}
+                    className="w-full accent-[#00ffff] h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between text-[10px] opacity-50 uppercase tracking-widest">
+                    <div className="flex items-center gap-2"><Sliders size={14} /> Control Smoothing</div>
+                    <span>{Math.round(controlSmoothing * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" min="0" max="1" step="0.05" 
+                    value={controlSmoothing}
+                    onChange={(e) => setControlSmoothing(parseFloat(e.target.value))}
                     className="w-full accent-[#00ffff] h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                   />
                 </div>

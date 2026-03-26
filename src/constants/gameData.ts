@@ -15,6 +15,10 @@ export const PLANETS: PlanetData[] = [
       secondaryColor: '#ff8800',
       emissiveColor: '#ffcc00',
       emissiveIntensity: 2,
+      textures: {
+        map: '/textures/planets/sun/map.jpg',
+        emissiveMap: '/textures/planets/sun/map.jpg'
+      },
       atmosphere: { color: '#ffcc00', intensity: 1.5, opacity: 0.4 },
       damageConfig: { crackColor: '#ffffff', glowColor: '#ff0000' }
     },
@@ -35,6 +39,10 @@ export const PLANETS: PlanetData[] = [
       surfaceColor: '#A5A5A5',
       secondaryColor: '#707070',
       roughness: 0.9,
+      textures: {
+        map: '/textures/planets/mercury/map.jpg',
+        normalMap: '/textures/planets/mercury/normal.jpg'
+      },
       damageConfig: { crackColor: '#ff4400', glowColor: '#ff8800' }
     },
     mass: 10,
@@ -53,6 +61,11 @@ export const PLANETS: PlanetData[] = [
       type: 'rocky',
       surfaceColor: '#E3BB76',
       secondaryColor: '#B8860B',
+      textures: {
+        map: '/textures/planets/venus/map.jpg',
+        normalMap: '/textures/planets/venus/normal.jpg',
+        cloudsMap: '/textures/planets/venus/clouds.jpg'
+      },
       atmosphere: { color: '#E3BB76', intensity: 1.2, opacity: 0.3 },
       clouds: { color: '#FFE4B5', opacity: 0.6, speed: 0.8 },
       damageConfig: { crackColor: '#ff0000', glowColor: '#ffaa00' }
@@ -73,6 +86,13 @@ export const PLANETS: PlanetData[] = [
       type: 'rocky',
       surfaceColor: '#2271B3',
       secondaryColor: '#228B22',
+      textures: {
+        map: '/textures/planets/earth/map.jpg',
+        normalMap: '/textures/planets/earth/normal.jpg',
+        roughnessMap: '/textures/planets/earth/roughness.jpg',
+        emissiveMap: '/textures/planets/earth/emissive.jpg',
+        cloudsMap: '/textures/planets/earth/clouds.jpg'
+      },
       atmosphere: { color: '#4da6ff', intensity: 1.1, opacity: 0.2 },
       clouds: { color: '#ffffff', opacity: 0.5, speed: 0.4 },
       damageConfig: { crackColor: '#ff4400', glowColor: '#ffaa00' }
@@ -96,6 +116,10 @@ export const PLANETS: PlanetData[] = [
       type: 'rocky',
       surfaceColor: '#E27B58',
       secondaryColor: '#8B4513',
+      textures: {
+        map: '/textures/planets/mars/map.jpg',
+        normalMap: '/textures/planets/mars/normal.jpg'
+      },
       atmosphere: { color: '#E27B58', intensity: 1.05, opacity: 0.1 },
       damageConfig: { crackColor: '#ff2200', glowColor: '#ff6600' }
     },
@@ -115,6 +139,9 @@ export const PLANETS: PlanetData[] = [
       type: 'gas',
       surfaceColor: '#D39C7E',
       secondaryColor: '#A0522D',
+      textures: {
+        map: '/textures/planets/jupiter/map.jpg'
+      },
       atmosphere: { color: '#D39C7E', intensity: 1.3, opacity: 0.2 },
       damageConfig: { crackColor: '#ffffff', glowColor: '#ff00ff', stormColor: '#ff4400' }
     },
@@ -134,6 +161,10 @@ export const PLANETS: PlanetData[] = [
       type: 'gas',
       surfaceColor: '#C5AB6E',
       secondaryColor: '#BDB76B',
+      textures: {
+        map: '/textures/planets/saturn/map.jpg',
+        ringsMap: '/textures/planets/saturn/rings.png'
+      },
       atmosphere: { color: '#C5AB6E', intensity: 1.2, opacity: 0.15 },
       rings: { color: '#C5AB6E', innerRadius: 1.4, outerRadius: 2.4, opacity: 0.6 },
       damageConfig: { crackColor: '#ffffff', glowColor: '#00ffff', stormColor: '#ffff00' }
@@ -154,6 +185,9 @@ export const PLANETS: PlanetData[] = [
       type: 'ice',
       surfaceColor: '#B5E3E3',
       secondaryColor: '#4682B4',
+      textures: {
+        map: '/textures/planets/uranus/map.jpg'
+      },
       atmosphere: { color: '#B5E3E3', intensity: 1.15, opacity: 0.1 },
       damageConfig: { crackColor: '#ffffff', glowColor: '#0000ff' }
     },
@@ -173,6 +207,9 @@ export const PLANETS: PlanetData[] = [
       type: 'ice',
       surfaceColor: '#4B70DD',
       secondaryColor: '#00008B',
+      textures: {
+        map: '/textures/planets/neptune/map.jpg'
+      },
       atmosphere: { color: '#4B70DD', intensity: 1.15, opacity: 0.1 },
       damageConfig: { crackColor: '#ffffff', glowColor: '#4444ff' }
     },
@@ -231,13 +268,46 @@ export const WEAPONS: WeaponData[] = [
 ];
 
 export const SHIP_SPECS = {
-  acceleration: 20,
-  boostMultiplier: 3,
-  maxSpeed: 150,
-  rotationSpeed: 1.5,
-  strafeSpeed: 10,
-  friction: 0.985,
-  discoveryRange: 30,
+  // Base Physics
+  acceleration: 25,
+  boostMultiplier: 2.5,
+  maxSpeed: 160,
+  rotationSpeed: 1.8,
+  strafeSpeed: 12,
+  friction: 0.98, // Base friction
+  
+  // Control Modes
+  modes: {
+    cruise: {
+      acceleration: 25,
+      maxSpeed: 160,
+      damping: 0.98,
+      rotationSpeed: 1.8,
+    },
+    precision: {
+      acceleration: 12,
+      maxSpeed: 40,
+      damping: 0.92, // Higher damping for precision
+      rotationSpeed: 1.0,
+    },
+    boost: {
+      acceleration: 60,
+      maxSpeed: 400,
+      damping: 0.99, // Lower damping for high speed
+      rotationSpeed: 0.8, // Harder to turn at high speed
+    }
+  },
+
+  // Control Curves
+  inputSmoothing: 0.1,
+  rotationDamping: 0.92,
+  thrustCurve: 1.5, // Power curve for thrust
+  
+  // Gravity
+  gravityCompensation: 0.6, // How much the ship fights gravity automatically
+  
+  // Damage
+  damageControlPenalty: 0.4, // Max penalty to controls when damaged
   
   // Camera
   cameraLerp: 0.08,
@@ -271,4 +341,5 @@ export const SHIP_SPECS = {
   autoPilotSpeed: 100,
   autoPilotSlowdownDist: 150,
   orbitDist: 50,
+  discoveryRange: 30,
 };

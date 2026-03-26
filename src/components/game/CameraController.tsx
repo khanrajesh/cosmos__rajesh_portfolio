@@ -22,7 +22,9 @@ export const CameraController = () => {
     effectIntensity,
     simulationTime,
     cameraSensitivity,
-    zoomSensitivity
+    zoomSensitivity,
+    screenShake,
+    setScreenShake
   } = useGameStore();
   
   const { gl } = useThree();
@@ -126,10 +128,18 @@ export const CameraController = () => {
     
     // Camera Shake based on speed and proximity
     const speed = shipVelocity.length();
-    if (speed > 10 && effectIntensity > 0.2) {
-      const shakeAmount = (speed / 100) * 0.05 * effectIntensity;
+    const totalShake = (speed > 10 ? (speed / 100) * 0.05 : 0) + (screenShake * 0.5);
+    
+    if (totalShake > 0.01 && effectIntensity > 0.1) {
+      const shakeAmount = totalShake * effectIntensity;
       cameraRef.current.position.x += (Math.random() - 0.5) * shakeAmount;
       cameraRef.current.position.y += (Math.random() - 0.5) * shakeAmount;
+      cameraRef.current.position.z += (Math.random() - 0.5) * shakeAmount;
+      
+      // Decay screenShake
+      if (screenShake > 0) {
+        setScreenShake(Math.max(0, screenShake - delta * 2));
+      }
     }
 
     // Cinematic Arrival
