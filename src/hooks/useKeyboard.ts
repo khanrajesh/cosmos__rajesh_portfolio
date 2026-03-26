@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useGameStore } from '../store/useGameStore';
 
 export const useKeyboard = () => {
   const keys = useRef<Record<string, boolean>>({});
@@ -30,12 +31,19 @@ export const useKeyboard = () => {
     window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('contextmenu', suppressContextMenu);
 
+    const unsubscribe = useGameStore.subscribe((state) => {
+      Object.entries(state.touchControls).forEach(([code, active]) => {
+        keys.current[code] = Boolean(active);
+      });
+    });
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('contextmenu', suppressContextMenu);
+      unsubscribe();
     };
   }, []);
 

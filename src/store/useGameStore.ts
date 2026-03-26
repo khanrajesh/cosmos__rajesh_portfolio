@@ -97,6 +97,17 @@ export type GraphicsQuality = 'low' | 'medium' | 'high';
 export type GameMode = 'explorer' | 'sandbox';
 export type ShipModelId = 'spacy' | 'scipio';
 export type WeaponSlot = 'primary' | 'secondary' | 'heavy';
+export type TouchControlCode =
+  | 'KeyW'
+  | 'KeyA'
+  | 'KeyD'
+  | 'KeyC'
+  | 'KeyQ'
+  | 'KeyE'
+  | 'ShiftLeft'
+  | 'MouseLeft'
+  | 'MouseRight'
+  | 'KeyF';
 
 const DEFAULT_SHIP_POSITION = new THREE.Vector3(0, 0, 500);
 const DEFAULT_SHIP_QUATERNION = new THREE.Quaternion().setFromAxisAngle(
@@ -164,6 +175,7 @@ interface GameState {
   weaponMode: 'safe' | 'armed';
   flightMode: 'cruise' | 'precision';
   controlSmoothing: number;
+  touchControls: Partial<Record<TouchControlCode, boolean>>;
   activeWeaponSlot: WeaponSlot;
   currentWeaponId: string;
   weaponCooldowns: Record<WeaponSlot, number>;
@@ -221,6 +233,8 @@ interface GameState {
   setWeaponMode: (mode: 'safe' | 'armed') => void;
   setFlightMode: (mode: 'cruise' | 'precision') => void;
   setControlSmoothing: (value: number) => void;
+  setTouchControl: (code: TouchControlCode, active: boolean) => void;
+  resetTouchControls: () => void;
   setActiveWeaponSlot: (slot: WeaponSlot) => void;
   setWeapon: (id: string) => void;
   setWeaponCooldowns: (cooldowns: Record<WeaponSlot, number>) => void;
@@ -292,6 +306,7 @@ export const useGameStore = create<GameState>((set) => ({
   weaponMode: 'safe',
   flightMode: 'cruise',
   controlSmoothing: 0.5,
+  touchControls: {},
   activeWeaponSlot: 'primary',
   currentWeaponId: 'fracture-beam',
   weaponCooldowns: {
@@ -377,6 +392,14 @@ export const useGameStore = create<GameState>((set) => ({
   setWeaponMode: (mode: 'safe' | 'armed') => set({ weaponMode: mode }),
   setFlightMode: (mode) => set({ flightMode: mode }),
   setControlSmoothing: (value) => set({ controlSmoothing: value }),
+  setTouchControl: (code, active) =>
+    set((state) => ({
+      touchControls: {
+        ...state.touchControls,
+        [code]: active,
+      },
+    })),
+  resetTouchControls: () => set({ touchControls: {} }),
   setActiveWeaponSlot: (activeWeaponSlot) => set({ activeWeaponSlot }),
   setWeapon: (id) => set({ currentWeaponId: id }),
   setWeaponCooldowns: (weaponCooldowns) => set({ weaponCooldowns }),

@@ -82,16 +82,18 @@ const OrbitingShipButton = ({
   label,
   onClick,
   className,
+  wrapperClassName,
 }: {
   label: string;
   onClick: () => void;
   className: string;
+  wrapperClassName?: string;
 }) => {
   const rotationVelocity = useRef(new THREE.Vector2(0.06, -0.04));
   const strafeVelocity = useRef(new THREE.Vector2(0.04, 0.02));
 
   return (
-    <div className="relative inline-flex shrink-0 items-center pl-8">
+    <div className={`relative inline-flex shrink-0 items-center pl-8 ${wrapperClassName ?? ''}`}>
       <motion.div
         className="pointer-events-none absolute left-0 top-1/2 z-20 -translate-y-1/2"
         animate={{ y: ['-50%', '-58%', '-50%'] }}
@@ -148,7 +150,7 @@ const ShipPreview = ({
     <button
       type="button"
       onClick={onClick}
-      className="group relative h-20 w-[5.5rem] shrink-0 overflow-hidden bg-transparent transition-transform"
+      className="group relative h-20 w-full min-w-0 overflow-hidden bg-transparent transition-transform sm:w-[5.25rem]"
       title={`Use ${modelId} ship`}
     >
       <div className={`pointer-events-none absolute inset-x-2 inset-y-3 rounded-[16px] blur-lg transition-opacity ${active ? 'bg-[#ffd54a]/32 opacity-100' : 'bg-[#ffd54a]/14 opacity-70'}`} />
@@ -187,6 +189,8 @@ export const PortfolioLanding = () => {
     message: '',
   });
   const mouse = useRef(new THREE.Vector2(0, 0));
+  const touchTarget = useRef(new THREE.Vector2(0, 0));
+  const isTouchTracking = useRef(false);
   const scrollRef = useRef(0);
   const { scrollY } = useScroll();
   const { scrollYProgress } = useScroll();
@@ -229,14 +233,62 @@ export const PortfolioLanding = () => {
 
   // Mouse tracking for parallax
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      mouse.current.x = (e.clientX / window.innerWidth) * 2 - 1;
-      mouse.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    let frameId = 0;
+
+    const applyParallaxTarget = (x: number, y: number) => {
+      mouse.current.x = x;
+      mouse.current.y = y;
       backgroundMouseX.set(mouse.current.x * 14);
       backgroundMouseY.set(-mouse.current.y * 10);
     };
+
+    const normalizePoint = (clientX: number, clientY: number) => ({
+      x: (clientX / window.innerWidth) * 2 - 1,
+      y: -(clientY / window.innerHeight) * 2 + 1,
+    });
+
+    const tickTouchSmoothing = () => {
+      if (isTouchTracking.current) {
+        mouse.current.lerp(touchTarget.current, 0.14);
+        applyParallaxTarget(mouse.current.x, mouse.current.y);
+      }
+      frameId = window.requestAnimationFrame(tickTouchSmoothing);
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const point = normalizePoint(e.clientX, e.clientY);
+      applyParallaxTarget(point.x, point.y);
+    };
+
+    const handleTouchStartOrMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      const point = normalizePoint(touch.clientX, touch.clientY);
+      touchTarget.current.set(point.x, point.y);
+      isTouchTracking.current = true;
+    };
+
+    const resetParallaxTarget = () => {
+      isTouchTracking.current = false;
+      touchTarget.current.set(0, 0);
+      applyParallaxTarget(0, 0);
+    };
+
+    frameId = window.requestAnimationFrame(tickTouchSmoothing);
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+    window.addEventListener('touchstart', handleTouchStartOrMove, { passive: true });
+    window.addEventListener('touchmove', handleTouchStartOrMove, { passive: true });
+    window.addEventListener('touchend', resetParallaxTarget, { passive: true });
+    window.addEventListener('touchcancel', resetParallaxTarget, { passive: true });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('touchstart', handleTouchStartOrMove);
+      window.removeEventListener('touchmove', handleTouchStartOrMove);
+      window.removeEventListener('touchend', resetParallaxTarget);
+      window.removeEventListener('touchcancel', resetParallaxTarget);
+    };
   }, [backgroundMouseX, backgroundMouseY]);
 
   const scrollTo = (id: string) => {
@@ -500,13 +552,13 @@ export const PortfolioLanding = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="flex items-center gap-0.5 pt-0.5 sm:gap-1"
+              className="grid w-full max-w-[300px] grid-cols-2 gap-2 pt-0.5 sm:flex sm:max-w-none sm:items-stretch sm:justify-start sm:gap-1"
             >
               <a
                 href={PORTFOLIO_DATA.resumeUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="shrink-0 px-5 py-3.5 bg-white text-black font-black uppercase tracking-[0.16em] text-[11px] rounded flex items-center gap-2.5 hover:bg-[#00ffff] transition-all group shadow-xl"
+                className="flex h-20 w-full min-w-0 items-center justify-center gap-2.5 rounded bg-white px-4 py-3.5 text-center text-[10px] font-black uppercase tracking-[0.14em] text-black transition-all group shadow-xl hover:bg-[#00ffff] sm:w-auto sm:shrink-0 sm:justify-start sm:px-5 sm:text-[11px] sm:tracking-[0.16em]"
               >
                 <Download size={13} />
                 {PORTFOLIO_DATA.ctas.resume}
@@ -514,7 +566,8 @@ export const PortfolioLanding = () => {
               <OrbitingShipButton
                 label={PORTFOLIO_DATA.ctas.start}
                 onClick={handleStartGame}
-                className="group relative z-10 shrink-0 px-5 py-3.5 bg-transparent border border-white/20 font-black uppercase tracking-[0.16em] text-[11px] rounded flex items-center gap-2.5 hover:border-[#00ffff] hover:text-[#00ffff] transition-all"
+                wrapperClassName="w-full sm:w-auto"
+                className="group relative z-10 flex h-20 w-full min-w-0 items-center justify-center gap-2.5 rounded border border-white/20 bg-transparent px-4 py-3.5 text-center text-[10px] font-black uppercase tracking-[0.14em] transition-all hover:border-[#00ffff] hover:text-[#00ffff] sm:w-auto sm:shrink-0 sm:justify-start sm:px-5 sm:text-[11px] sm:tracking-[0.16em]"
               />
               <ShipPreview
                 modelId="spacy"
@@ -535,7 +588,7 @@ export const PortfolioLanding = () => {
             transition={{ delay: 0.2, duration: 1, ease: "easeOut" }}
             className="relative lg:ml-auto"
           >
-            <div className="relative w-[300px] h-[400px] md:w-[400px] md:h-[500px] group">
+            <div className="relative w-full max-w-[300px] h-[380px] sm:h-[400px] md:w-[400px] md:max-w-none md:h-[500px] mx-auto group">
               {/* Decorative frames */}
               <div className="absolute -inset-4 border border-[#00ffff]/20 rounded-2xl -rotate-3 group-hover:rotate-0 transition-transform duration-700" />
               <div className="absolute -inset-4 border border-white/10 rounded-2xl rotate-3 group-hover:rotate-0 transition-transform duration-700 delay-100" />
@@ -550,15 +603,15 @@ export const PortfolioLanding = () => {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                 
                 {/* Floating Info */}
-                <div className="absolute bottom-6 left-6 right-6 p-4 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl">
-                  <div className="flex items-center justify-between">
+                <div className="absolute bottom-2 left-3 right-3 p-2 sm:bottom-6 sm:left-6 sm:right-6 sm:p-4 bg-black/50 backdrop-blur-md border border-white/10 rounded-xl">
+                  <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <div className="text-[10px] font-black uppercase tracking-widest text-[#00ffff]">Experience</div>
-                      <div className="text-xl font-black italic">{PORTFOLIO_DATA.experienceSummary}</div>
+                      <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-[#00ffff]">Experience</div>
+                      <div className="text-[15px] sm:text-xl font-black italic leading-tight">{PORTFOLIO_DATA.experienceSummary}</div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-white/40">Location</div>
-                      <div className="text-sm font-bold">{PORTFOLIO_DATA.location}</div>
+                    <div className="sm:text-right">
+                      <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white/40">Location</div>
+                      <div className="text-[11px] sm:text-sm font-bold">{PORTFOLIO_DATA.location}</div>
                     </div>
                   </div>
                 </div>
@@ -568,16 +621,16 @@ export const PortfolioLanding = () => {
               <motion.div 
                 animate={{ y: [0, -10, 0] }}
                 transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                className="absolute -top-8 -right-8 p-4 bg-black border border-[#00ffff]/30 rounded-2xl backdrop-blur-xl shadow-2xl"
+                className="absolute -top-4 right-0 p-3 sm:-top-8 sm:-right-8 sm:p-4 bg-black border border-[#00ffff]/30 rounded-2xl backdrop-blur-xl shadow-2xl"
               >
-                <Cpu className="text-[#00ffff]" size={32} />
+                <Cpu className="text-[#00ffff]" size={24} />
               </motion.div>
               <motion.div 
                 animate={{ y: [0, 10, 0] }}
                 transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-                className="absolute -bottom-8 -left-8 p-4 bg-black border border-[#00ffff]/30 rounded-2xl backdrop-blur-xl shadow-2xl"
+                className="absolute -bottom-4 left-0 p-3 sm:-bottom-8 sm:-left-8 sm:p-4 bg-black border border-[#00ffff]/30 rounded-2xl backdrop-blur-xl shadow-2xl"
               >
-                <Brain className="text-[#00ffff]" size={32} />
+                <Brain className="text-[#00ffff]" size={24} />
               </motion.div>
             </div>
           </motion.div>
@@ -948,47 +1001,47 @@ export const PortfolioLanding = () => {
       </div>
 
       {/* --- FOOTER / CONNECT --- */}
-      <footer id="connect" className="py-24 px-8 border-t border-white/5 relative overflow-hidden bg-black/40">
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-end relative z-10">
-          <div className="space-y-16">
-            <div className="space-y-6">
-              <h2 className="text-7xl md:text-9xl font-black tracking-tighter uppercase italic leading-[0.85]">
+      <footer id="connect" className="py-16 md:py-24 px-4 md:px-8 border-t border-white/5 relative overflow-hidden bg-black/40">
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-10 md:gap-16 items-end relative z-10">
+          <div className="space-y-10 md:space-y-16">
+            <div className="space-y-4 md:space-y-6">
+              <h2 className="text-4xl sm:text-5xl md:text-7xl lg:text-9xl font-black tracking-tighter uppercase italic leading-[0.9]">
                 Let's <span className="text-[#00ffff]">Build</span> <br /> Something <br /> Great
               </h2>
-              <p className="text-white/60 text-xl max-w-md leading-relaxed font-medium">
+              <p className="text-white/60 text-base md:text-xl max-w-md leading-relaxed font-medium">
                 I'm currently available for new projects and collaborations. Let's start a conversation about your next mission.
               </p>
             </div>
             
-            <div className="grid md:grid-cols-2 gap-5">
-              <a href={`mailto:${PORTFOLIO_DATA.contact.email}`} className="p-5 bg-white/5 border border-white/10 rounded-[28px] space-y-3 hover:border-[#00ffff]/50 transition-all group min-w-0">
-                <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center text-white/40 group-hover:bg-[#00ffff]/10 group-hover:text-[#00ffff] transition-all">
-                  <Mail size={24} />
+            <div className="grid sm:grid-cols-2 gap-4 md:gap-5">
+              <a href={`mailto:${PORTFOLIO_DATA.contact.email}`} className="p-4 md:p-5 bg-white/5 border border-white/10 rounded-[24px] md:rounded-[28px] space-y-3 hover:border-[#00ffff]/50 transition-all group min-w-0">
+                <div className="w-12 h-12 md:w-14 md:h-14 bg-white/5 rounded-2xl flex items-center justify-center text-white/40 group-hover:bg-[#00ffff]/10 group-hover:text-[#00ffff] transition-all">
+                  <Mail size={20} className="md:w-6 md:h-6" />
                 </div>
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-widest text-white/40">Email Me</div>
-                  <div className="text-base font-black italic break-all">{PORTFOLIO_DATA.contact.email}</div>
+                  <div className="text-sm md:text-base font-black italic break-all">{PORTFOLIO_DATA.contact.email}</div>
                 </div>
               </a>
-              <a href={`tel:${PORTFOLIO_DATA.contact.mobile}`} className="p-5 bg-white/5 border border-white/10 rounded-[28px] space-y-3 hover:border-[#00ffff]/50 transition-all group">
-                <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center text-white/40 group-hover:bg-[#00ffff]/10 group-hover:text-[#00ffff] transition-all">
-                  <Phone size={24} />
+              <a href={`tel:${PORTFOLIO_DATA.contact.mobile}`} className="p-4 md:p-5 bg-white/5 border border-white/10 rounded-[24px] md:rounded-[28px] space-y-3 hover:border-[#00ffff]/50 transition-all group">
+                <div className="w-12 h-12 md:w-14 md:h-14 bg-white/5 rounded-2xl flex items-center justify-center text-white/40 group-hover:bg-[#00ffff]/10 group-hover:text-[#00ffff] transition-all">
+                  <Phone size={20} className="md:w-6 md:h-6" />
                 </div>
                 <div>
                   <div className="text-[10px] font-black uppercase tracking-widest text-white/40">Call Me</div>
-                  <div className="text-lg font-black italic">{PORTFOLIO_DATA.contact.mobile}</div>
+                  <div className="text-base md:text-lg font-black italic">{PORTFOLIO_DATA.contact.mobile}</div>
                 </div>
               </a>
             </div>
 
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-3 md:gap-4">
               {PORTFOLIO_DATA.contact.socials.map(social => (
                 <a 
                   key={social.platform} 
                   href={social.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-16 h-16 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-white/40 hover:bg-[#00ffff] hover:text-black transition-all hover:-translate-y-2"
+                  className="w-12 h-12 md:w-16 md:h-16 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-white/40 hover:bg-[#00ffff] hover:text-black transition-all hover:-translate-y-2"
                 >
                   {getSocialIcon(social.platform)}
                 </a>
@@ -1000,55 +1053,55 @@ export const PortfolioLanding = () => {
             initial={{ opacity: 0, scale: 0.95 }}
             whileInView={{ opacity: 1, scale: 1 }}
             viewport={{ once: true }}
-            className="self-end p-8 bg-gradient-to-br from-white/10 to-transparent rounded-[40px] border border-white/10 space-y-6 backdrop-blur-2xl shadow-2xl relative"
+            className="self-end p-5 md:p-8 bg-gradient-to-br from-white/10 to-transparent rounded-[28px] md:rounded-[40px] border border-white/10 space-y-5 md:space-y-6 backdrop-blur-2xl shadow-2xl relative min-w-0"
           >
-            <div className="absolute top-0 right-0 p-8 opacity-10">
-              <Send size={100} className="text-[#00ffff]" />
+            <div className="absolute top-0 right-0 p-4 md:p-8 opacity-10">
+              <Send size={72} className="text-[#00ffff] md:w-[100px] md:h-[100px]" />
             </div>
             
-            <div className="space-y-6 relative z-10">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="space-y-3">
+            <div className="space-y-4 md:space-y-6 relative z-10">
+              <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+                <div className="space-y-2 md:space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Full Name</label>
                   <input
                     type="text"
                     value={contactForm.fullName}
                     onChange={(e) => setContactForm((prev) => ({ ...prev, fullName: e.target.value }))}
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 focus:border-[#00ffff] outline-none transition-all text-sm font-bold"
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 md:p-4 focus:border-[#00ffff] outline-none transition-all text-sm font-bold"
                     placeholder="John Doe"
                   />
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2 md:space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Email Address</label>
                   <input
                     type="email"
                     value={contactForm.email}
                     onChange={(e) => setContactForm((prev) => ({ ...prev, email: e.target.value }))}
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 focus:border-[#00ffff] outline-none transition-all text-sm font-bold"
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 md:p-4 focus:border-[#00ffff] outline-none transition-all text-sm font-bold"
                     placeholder="john@example.com"
                   />
                 </div>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-2 md:space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-2">Your Message</label>
                 <textarea
                   value={contactForm.message}
                   onChange={(e) => setContactForm((prev) => ({ ...prev, message: e.target.value }))}
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 h-32 focus:border-[#00ffff] outline-none transition-all text-sm font-bold resize-none"
+                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 md:p-4 h-28 md:h-32 focus:border-[#00ffff] outline-none transition-all text-sm font-bold resize-none"
                   placeholder="Tell me about your project..."
                 />
               </div>
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="grid sm:grid-cols-2 gap-3 md:gap-4">
                 <button
                   onClick={handleWhatsAppContact}
-                  className="w-full py-3.5 bg-[#25D366] text-black font-black rounded-2xl uppercase tracking-[0.3em] text-xs hover:bg-[#3bf07d] transition-all flex items-center justify-center gap-4 group shadow-[0_0_30px_rgba(37,211,102,0.25)] active:scale-95"
+                  className="w-full py-3 md:py-3.5 bg-[#25D366] text-black font-black rounded-2xl uppercase tracking-[0.24em] md:tracking-[0.3em] text-[11px] md:text-xs hover:bg-[#3bf07d] transition-all flex items-center justify-center gap-3 md:gap-4 group shadow-[0_0_30px_rgba(37,211,102,0.25)] active:scale-95"
                 >
                   WhatsApp
                   <Send size={18} className="group-hover:translate-x-2 group-hover:-translate-y-2 transition-transform" />
                 </button>
                 <button
                   onClick={handleContactSubmit}
-                  className="w-full py-3.5 bg-[#00ffff] text-black font-black rounded-2xl uppercase tracking-[0.3em] text-xs hover:bg-white transition-all flex items-center justify-center gap-4 group shadow-[0_0_40px_rgba(0,255,255,0.3)] hover:shadow-[0_0_50px_rgba(255,255,255,0.5)] active:scale-95"
+                  className="w-full py-3 md:py-3.5 bg-[#00ffff] text-black font-black rounded-2xl uppercase tracking-[0.24em] md:tracking-[0.3em] text-[11px] md:text-xs hover:bg-white transition-all flex items-center justify-center gap-3 md:gap-4 group shadow-[0_0_40px_rgba(0,255,255,0.3)] hover:shadow-[0_0_50px_rgba(255,255,255,0.5)] active:scale-95"
                 >
                   Email
                   <Send size={18} className="group-hover:translate-x-2 group-hover:-translate-y-2 transition-transform" />
@@ -1058,14 +1111,14 @@ export const PortfolioLanding = () => {
           </motion.div>
         </div>
 
-        <div className="max-w-7xl mx-auto mt-24 pt-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-10 text-[10px] font-black tracking-[0.4em] uppercase text-white/20">
-          <div className="flex items-center gap-3">
+        <div className="max-w-7xl mx-auto mt-14 md:mt-24 pt-8 md:pt-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-6 md:gap-10 text-[9px] md:text-[10px] font-black tracking-[0.24em] md:tracking-[0.4em] uppercase text-white/20">
+          <div className="flex items-center gap-3 text-center md:text-left">
             <div className="w-8 h-8 bg-[#00ffff]/10 rounded-lg flex items-center justify-center">
               <Rocket size={14} className="text-[#00ffff]" />
             </div>
             <span>© 2026 {PORTFOLIO_DATA.name}. Built for the Cosmos.</span>
           </div>
-          <div className="flex gap-16">
+          <div className="flex flex-wrap justify-center gap-6 md:gap-16">
             <a href="#" className="hover:text-[#00ffff] transition-colors">Privacy Protocol</a>
             <a href="#" className="hover:text-[#00ffff] transition-colors">Mission Terms</a>
           </div>

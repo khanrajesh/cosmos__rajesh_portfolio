@@ -1,4 +1,4 @@
-import { useGameStore, CameraMode, GraphicsQuality, GameMode, WeaponData, ShipModelId } from '../../store/useGameStore';
+import { useGameStore, CameraMode, GraphicsQuality, GameMode, WeaponData, ShipModelId, TouchControlCode } from '../../store/useGameStore';
 import { PLANETS, WEAPONS, WEAPON_BINDINGS, WEAPON_SYSTEM_TUNING, TARGET_UX_TUNING } from '../../constants/gameData';
 import { motion, AnimatePresence } from 'motion/react';
 import * as THREE from 'three';
@@ -8,7 +8,7 @@ import {
   RotateCcw, Shield, Crosshair, Globe, Activity, Flame, ZapOff,
   Dna, Atom, BarChart3, AlertTriangle, type LucideIcon
 } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, type PointerEvent as ReactPointerEvent } from 'react';
 import { AnalysisPanel } from './AnalysisPanel';
 
 const HUD_CONTROL_PANEL_TUNING = {
@@ -17,6 +17,7 @@ const HUD_CONTROL_PANEL_TUNING = {
   transitionDuration: 0.22,
   orbitAssistRange: 140,
   analysisOffset: 336,
+  mobileJoystickRadius: 42,
 };
 
 type ActionTone = 'neutral' | 'ready' | 'active' | 'warn' | 'locked';
@@ -225,12 +226,16 @@ export const HUD = () => {
     flightMode,
     setFlightMode,
     controlSmoothing,
-    setControlSmoothing
+    setControlSmoothing,
+    setTouchControl,
+    resetTouchControls
   } = useGameStore();
 
   const [showCodex, setShowCodex] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showTacticalPanel, setShowTacticalPanel] = useState(true);
+  const [mobilePanel, setMobilePanel] = useState<'none' | 'controls' | 'target' | 'systems'>('none');
+  const [joystickOffset, setJoystickOffset] = useState({ x: 0, y: 0 });
 
   const criticalPlanets = useMemo(() => {
     return Object.entries(planetStates)
@@ -713,6 +718,70 @@ export const HUD = () => {
     setShipModelId(shipModelId === 'spacy' ? 'scipio' : 'spacy');
   };
 
+  const cycleCameraMode = () => {
+    const currentIndex = cameraModes.findIndex((mode) => mode.id === cameraMode);
+    const nextMode = cameraModes[(currentIndex + 1) % cameraModes.length];
+    setCameraMode(nextMode.id);
+  };
+
+  const createTouchHoldHandlers = (code: TouchControlCode) => {
+    const activate = (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      setTouchControl(code, true);
+    };
+    const deactivate = () => {
+      setTouchControl(code, false);
+    };
+
+    return {
+      onPointerDown: activate,
+      onPointerUp: deactivate,
+      onPointerLeave: deactivate,
+      onPointerCancel: deactivate,
+    };
+  };
+
+  const releaseJoystick = () => {
+    setJoystickOffset({ x: 0, y: 0 });
+    setTouchControl('KeyW', false);
+    setTouchControl('KeyC', false);
+    setTouchControl('KeyA', false);
+    setTouchControl('KeyD', false);
+    setTouchControl('ShiftLeft', false);
+  };
+
+  const updateJoystick = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const rawX = event.clientX - centerX;
+    const rawY = event.clientY - centerY;
+    const radius = HUD_CONTROL_PANEL_TUNING.mobileJoystickRadius;
+    const length = Math.hypot(rawX, rawY);
+    const clamp = length > radius ? radius / length : 1;
+    const x = rawX * clamp;
+    const y = rawY * clamp;
+
+    setJoystickOffset({ x, y });
+
+    const nx = x / radius;
+    const ny = y / radius;
+    const magnitude = Math.min(1, Math.hypot(nx, ny));
+
+    setTouchControl('KeyW', ny < -0.22);
+    setTouchControl('KeyC', ny > 0.3);
+    setTouchControl('KeyA', nx < -0.22);
+    setTouchControl('KeyD', nx > 0.22);
+    setTouchControl('ShiftLeft', magnitude > 0.82 && ny < -0.35);
+  };
+
+  useEffect(() => {
+    return () => {
+      resetTouchControls();
+    };
+  }, [resetTouchControls]);
+
   if (status !== 'playing') return null;
 
   return (
@@ -727,36 +796,36 @@ export const HUD = () => {
       />
 
       {/* --- TOP BAR: MISSION & STATUS --- */}
-      <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/80 to-transparent flex items-center justify-between px-8 border-t-2 border-[#00ffff]/30">
+      <div className="absolute top-0 left-0 right-0 h-14 md:h-16 bg-gradient-to-b from-black/80 to-transparent flex items-center justify-between px-4 md:px-6 lg:px-8 border-t-2 border-[#00ffff]/30">
         <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-10">
           <div className="w-full h-full bg-[repeating-linear-gradient(0deg,transparent,transparent_1px,rgba(0,255,255,0.1)_2px)]" />
         </div>
-        <div className="flex items-center gap-8 relative z-10">
+        <div className="flex items-center gap-4 md:gap-6 lg:gap-8 relative z-10 min-w-0">
           <div className="flex flex-col">
             <span className="text-[8px] opacity-40 tracking-[0.3em]">MISSION OBJECTIVE</span>
-            <span className="text-[10px] font-bold tracking-wider uppercase">{objective}</span>
+            <span className="max-w-[10rem] truncate text-[9px] md:max-w-xs md:text-[10px] font-bold tracking-wider uppercase">{objective}</span>
           </div>
-          <div className="h-8 w-px bg-white/10" />
-          <div className="flex flex-col">
+          <div className="hidden sm:block h-8 w-px bg-white/10" />
+          <div className="hidden sm:flex flex-col">
             <span className="text-[8px] opacity-40 tracking-[0.3em]">SYSTEM MODE</span>
             <span className="text-[10px] font-bold tracking-wider text-white">{gameMode.toUpperCase()}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-6">
-          <div className="text-right">
+        <div className="flex items-center gap-3 md:gap-6">
+          <div className="hidden md:block text-right">
             <div className="text-[8px] opacity-40 tracking-[0.3em]">SIMULATION TIME</div>
             <div className="text-[10px] font-bold">T+{Math.floor(simulationTime / 100)}:{(Math.floor(simulationTime) % 100).toString().padStart(2, '0')}</div>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 bg-[#00ffff]/5 border border-[#00ffff]/20 rounded">
+          <div className="flex items-center gap-2 px-3 md:px-4 py-1.5 md:py-2 bg-[#00ffff]/5 border border-[#00ffff]/20 rounded">
             <Activity size={12} className="animate-pulse" />
-            <span className="text-[10px] font-bold">LINK STABLE</span>
+            <span className="text-[9px] md:text-[10px] font-bold">LINK STABLE</span>
           </div>
         </div>
       </div>
 
       {/* --- WARNINGS: GRAVITATIONAL INSTABILITY --- */}
-      <div className="absolute top-24 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+      <div className="absolute top-20 md:top-24 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 px-3">
         <AnimatePresence>
           {collisionWarning && shipStatus !== 'destroyed' && (
             <motion.div
@@ -852,7 +921,7 @@ export const HUD = () => {
       </div>
 
       {/* --- LEFT PANEL: VESSEL TELEMETRY --- */}
-      <div className="absolute top-24 bottom-24 left-8 flex w-64 flex-col gap-6">
+      <div className="absolute hidden md:flex top-20 lg:top-24 bottom-24 left-4 lg:left-8 w-56 lg:w-64 flex-col gap-4 lg:gap-6">
         <div className="p-6 bg-black/60 border-l-2 border-[#00ffff] backdrop-blur-md shadow-[0_0_30px_rgba(0,255,255,0.05)] relative overflow-hidden group">
           {/* Corner Accents */}
           <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00ffff]/40" />
@@ -1126,7 +1195,7 @@ export const HUD = () => {
             initial={{ x: 100, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 100, opacity: 0 }}
-            className="absolute top-24 right-8 w-72 space-y-6"
+            className="absolute hidden md:block top-20 lg:top-24 right-4 lg:right-8 w-60 lg:w-72 space-y-4 lg:space-y-6"
           >
             <motion.div
               animate={targetRangeTone === 'warn' || targetRangeTone === 'locked'
@@ -1259,15 +1328,95 @@ export const HUD = () => {
         )}
       </AnimatePresence>
 
+      {/* --- MOBILE / SMALL TABLET TARGET PANEL --- */}
+      <AnimatePresence>
+        {mobilePanel === 'target' && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            className="absolute inset-x-3 bottom-20 z-40 md:hidden pointer-events-auto"
+          >
+            <div className="rounded-2xl border border-cyan-400/20 bg-black/85 p-4 backdrop-blur-xl shadow-[0_0_40px_rgba(0,255,255,0.08)]">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-[9px] font-bold uppercase tracking-[0.28em] text-white/50">Target Intel</div>
+                <button onClick={() => setMobilePanel('none')} className="text-white/40 hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+              {target ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-lg font-light uppercase tracking-[0.18em]">{target.name}</div>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        <TacticalKeyChip label={target.visuals.type} tone={targetRangeTone} />
+                        <TacticalKeyChip label={attackInRange ? 'IN RANGE' : 'APPROACH'} tone={targetRangeTone} />
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[8px] uppercase tracking-[0.24em] text-white/35">Distance</div>
+                      <div className="text-sm font-bold text-white">{distance.toLocaleString()} KM</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[9px] uppercase tracking-[0.18em]">
+                    <div className="rounded border border-white/10 bg-white/5 p-3">
+                      <div className="text-white/35">Scan</div>
+                      <div className={targetScannable ? 'mt-1 text-cyan-200' : 'mt-1 text-white/70'}>
+                        {targetScannable ? 'Ready' : 'Hold'}
+                      </div>
+                    </div>
+                    <div className="rounded border border-white/10 bg-white/5 p-3">
+                      <div className="text-white/35">Attack</div>
+                      <div className={targetAttackable ? 'mt-1 text-cyan-200' : 'mt-1 text-amber-200'}>
+                        {targetAttackable ? activeWeaponBinding.uiChip : 'Approach'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setTarget(null)}
+                      className="rounded border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-bold uppercase tracking-[0.18em] text-white/80"
+                    >
+                      Clear [T]
+                    </button>
+                    <button
+                      onClick={() => setAutoPilot(!isAutoPilot)}
+                      className={`rounded border px-3 py-2 text-[9px] font-bold uppercase tracking-[0.18em] ${
+                        isAutoPilot ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : 'border-white/10 bg-white/5 text-white/80'
+                      }`}
+                    >
+                      Auto
+                    </button>
+                    <button
+                      onClick={() => inspectInRange && setIsInspectionMode(!isInspectionMode)}
+                      className={`rounded border px-3 py-2 text-[9px] font-bold uppercase tracking-[0.18em] ${
+                        inspectInRange ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-200' : 'border-white/10 bg-white/5 text-white/45'
+                      }`}
+                    >
+                      Inspect
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded border border-white/10 bg-white/5 p-4 text-[10px] uppercase tracking-[0.18em] text-white/55">
+                  No target locked. Press T or tap controls to acquire the nearest body.
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* --- BOTTOM BAR: SIMULATION & CAMERA --- */}
-      <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-black/80 to-transparent flex items-center justify-between px-8 border-b-2 border-[#00ffff]/30">
-        <div className="flex items-center gap-6 pointer-events-auto">
+      <div className="absolute hidden md:flex bottom-0 left-0 right-0 h-16 lg:h-20 bg-gradient-to-t from-black/80 to-transparent items-center justify-between px-4 lg:px-8 border-b-2 border-[#00ffff]/30">
+        <div className="flex items-center gap-3 lg:gap-6 pointer-events-auto">
           <div className="flex items-center gap-2 bg-black/40 p-1 rounded border border-white/5">
             {cameraModes.map(mode => (
               <button
                 key={mode.id}
                 onClick={() => setCameraMode(mode.id)}
-                className={`px-4 py-2 rounded text-[9px] font-bold tracking-[0.2em] transition-all ${
+                className={`px-2.5 lg:px-4 py-2 rounded text-[8px] lg:text-[9px] font-bold tracking-[0.2em] transition-all ${
                   cameraMode === mode.id 
                   ? 'bg-[#00ffff] text-black shadow-[0_0_15px_rgba(0,255,255,0.3)]' 
                   : 'text-white/40 hover:text-white hover:bg-white/5'
@@ -1286,8 +1435,8 @@ export const HUD = () => {
           </button>
         </div>
 
-        <div className="flex items-center gap-8 pointer-events-auto">
-          <div className="flex items-center gap-4 px-6 py-2 bg-black/40 rounded border border-white/5">
+        <div className="flex items-center gap-3 lg:gap-8 pointer-events-auto">
+          <div className="hidden lg:flex items-center gap-4 px-6 py-2 bg-black/40 rounded border border-white/5">
             <button 
               onClick={() => setPaused(!isPaused)}
               className="text-white hover:text-[#00ffff] transition-colors"
@@ -1338,6 +1487,206 @@ export const HUD = () => {
               title="Discovery Log"
             >
               <BookOpen size={18} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* --- MOBILE HUD DOCK --- */}
+      <div className="absolute md:hidden bottom-0 left-0 right-0 border-b-2 border-[#00ffff]/30 bg-gradient-to-t from-black/90 to-black/55 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-3 pointer-events-auto">
+        <div className="mb-3 flex items-center justify-between rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-[9px] uppercase tracking-[0.2em]">
+          <span className="text-white/50">SPD {speed}</span>
+          <span className={weaponMode === 'armed' ? 'text-red-300' : 'text-white/70'}>{weaponMode === 'armed' ? 'WEAPONS HOT' : 'WEAPONS SAFE'}</span>
+          <span className="text-white/50">{cameraMode}</span>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          <button
+            onClick={() => setMobilePanel(mobilePanel === 'controls' ? 'none' : 'controls')}
+            className={`rounded-xl border px-2 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${mobilePanel === 'controls' ? 'border-cyan-400/35 bg-cyan-400/10 text-cyan-200' : 'border-white/10 bg-white/5 text-white/70'}`}
+          >
+            Controls
+          </button>
+          <button
+            onClick={() => setMobilePanel(mobilePanel === 'target' ? 'none' : 'target')}
+            className={`rounded-xl border px-2 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${mobilePanel === 'target' ? 'border-cyan-400/35 bg-cyan-400/10 text-cyan-200' : 'border-white/10 bg-white/5 text-white/70'}`}
+          >
+            Target
+          </button>
+          <button
+            onClick={cycleCameraMode}
+            className="rounded-xl border border-white/10 bg-white/5 px-2 py-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/70"
+          >
+            Cam
+          </button>
+          <button
+            onClick={() => setMobilePanel(mobilePanel === 'systems' ? 'none' : 'systems')}
+            className={`rounded-xl border px-2 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${mobilePanel === 'systems' ? 'border-cyan-400/35 bg-cyan-400/10 text-cyan-200' : 'border-white/10 bg-white/5 text-white/70'}`}
+          >
+            Systems
+          </button>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {mobilePanel === 'controls' && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            className="absolute inset-x-3 bottom-20 z-40 md:hidden pointer-events-auto"
+          >
+            <div className="rounded-2xl border border-cyan-400/20 bg-black/85 p-4 backdrop-blur-xl shadow-[0_0_40px_rgba(0,255,255,0.08)]">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-[9px] font-bold uppercase tracking-[0.28em] text-white/50">Flight Controls</div>
+                <button onClick={() => setMobilePanel('none')} className="text-white/40 hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setTarget(targetPlanetId ? null : nearestTargetId)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/80">Target [T]</button>
+                <button onClick={() => setAutoPilot(!isAutoPilot)} className={`rounded-xl border px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${isAutoPilot ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : 'border-white/10 bg-white/5 text-white/80'}`}>Auto</button>
+                <button onClick={() => setIsScanning(!isScanning)} className={`rounded-xl border px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${isScanning ? 'border-amber-400/30 bg-amber-400/10 text-amber-200' : 'border-white/10 bg-white/5 text-white/80'}`}>Scan</button>
+                <button onClick={() => setOrbitAssist(!orbitAssist)} className={`rounded-xl border px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${orbitAssist ? 'border-blue-400/30 bg-blue-400/10 text-blue-200' : 'border-white/10 bg-white/5 text-white/80'}`}>Orbit</button>
+                <button onClick={() => setShowGravityOverlay(!showGravityOverlay)} className={`rounded-xl border px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${showGravityOverlay ? 'border-purple-400/30 bg-purple-400/10 text-purple-200' : 'border-white/10 bg-white/5 text-white/80'}`}>Gravity</button>
+                <button onClick={() => setWeaponMode(weaponMode === 'safe' ? 'armed' : 'safe')} className={`rounded-xl border px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${weaponMode === 'armed' ? 'border-red-400/30 bg-red-400/10 text-red-200' : 'border-white/10 bg-white/5 text-white/80'}`}>Weapons</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+        {mobilePanel === 'systems' && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            className="absolute inset-x-3 bottom-20 z-40 md:hidden pointer-events-auto"
+          >
+            <div className="rounded-2xl border border-cyan-400/20 bg-black/85 p-4 backdrop-blur-xl shadow-[0_0_40px_rgba(0,255,255,0.08)]">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-[9px] font-bold uppercase tracking-[0.28em] text-white/50">Systems</div>
+                <button onClick={() => setMobilePanel('none')} className="text-white/40 hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="mb-3 grid grid-cols-3 gap-2">
+                {cameraModes.map((mode) => (
+                  <button
+                    key={mode.id}
+                    onClick={() => setCameraMode(mode.id)}
+                    className={`rounded-xl border px-2 py-3 text-[8px] font-bold uppercase tracking-[0.16em] ${
+                      cameraMode === mode.id ? 'border-cyan-400/35 bg-cyan-400/10 text-cyan-200' : 'border-white/10 bg-white/5 text-white/75'
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={resetCamera} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/80">Reset Cam</button>
+                <button onClick={toggleShipModel} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/80">{shipModelId === 'spacy' ? 'Spacy' : 'Scipio'}</button>
+                <button onClick={() => setShowOrbits(!showOrbits)} className={`rounded-xl border px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${showOrbits ? 'border-cyan-400/35 bg-cyan-400/10 text-cyan-200' : 'border-white/10 bg-white/5 text-white/80'}`}>Orbits</button>
+                <button onClick={() => setShowAnalysisPanel(!showAnalysisPanel)} className={`rounded-xl border px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] ${showAnalysisPanel ? 'border-cyan-400/35 bg-cyan-400/10 text-cyan-200' : 'border-white/10 bg-white/5 text-white/80'}`}>Analysis</button>
+                <button onClick={() => setShowSettings(true)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/80">Settings</button>
+                <button onClick={() => setPaused(!isPaused)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/80">{isPaused ? 'Resume' : 'Pause'}</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MOBILE TOUCH CONTROLS --- */}
+      <div className="absolute md:hidden inset-x-3 bottom-[7.75rem] z-30 pointer-events-none">
+        <div className="flex items-end justify-between gap-3">
+          <div className="pointer-events-auto flex w-[9.8rem] flex-col gap-2 rounded-2xl border border-white/10 bg-black/55 p-2 backdrop-blur-xl">
+            <div className="px-1 text-center text-[8px] font-bold uppercase tracking-[0.24em] text-white/45">
+              Drag To Fly / Push Farther To Boost
+            </div>
+            <div
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                updateJoystick(event);
+              }}
+              onPointerMove={updateJoystick}
+              onPointerUp={releaseJoystick}
+              onPointerCancel={releaseJoystick}
+              onPointerLeave={releaseJoystick}
+              className="relative h-32 w-32 self-center rounded-full border border-cyan-400/20 bg-[radial-gradient(circle_at_center,rgba(34,211,238,0.12),rgba(255,255,255,0.03)_55%,rgba(255,255,255,0)_70%)]"
+            >
+              <div className="absolute inset-3 rounded-full border border-white/10" />
+              <div className="absolute inset-6 rounded-full border border-white/10" />
+              <motion.div
+                className="absolute left-1/2 top-1/2 h-12 w-12 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/30 bg-cyan-400/15 shadow-[0_0_20px_rgba(34,211,238,0.2)]"
+                animate={{ x: joystickOffset.x, y: joystickOffset.y }}
+                transition={{ type: 'spring', stiffness: 340, damping: 28, mass: 0.45 }}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                {...createTouchHoldHandlers('KeyQ')}
+                className="rounded-xl border border-white/10 bg-white/5 px-2 py-2.5 text-[8px] font-bold uppercase tracking-[0.16em] text-white/75 active:scale-95"
+              >
+                Roll L
+              </button>
+              <button
+                onClick={() => setTarget(targetPlanetId ? null : nearestTargetId)}
+                className="rounded-xl border border-white/10 bg-white/5 px-2 py-2.5 text-[8px] font-bold uppercase tracking-[0.16em] text-white/75 active:scale-95"
+              >
+                Target
+              </button>
+              <button
+                {...createTouchHoldHandlers('KeyE')}
+                className="rounded-xl border border-white/10 bg-white/5 px-2 py-2.5 text-[8px] font-bold uppercase tracking-[0.16em] text-white/75 active:scale-95"
+              >
+                Roll R
+              </button>
+            </div>
+          </div>
+
+          <div className="pointer-events-auto flex w-[10rem] flex-col gap-2 rounded-2xl border border-white/10 bg-black/55 p-2 backdrop-blur-xl">
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                onClick={() => setAutoPilot(!isAutoPilot)}
+                className={`rounded-xl border px-2 py-3 text-[9px] font-bold uppercase tracking-[0.18em] active:scale-95 ${isAutoPilot ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : 'border-white/10 bg-white/5 text-white/75'}`}
+              >
+                Auto
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                {...createTouchHoldHandlers('MouseLeft')}
+                onClick={() => {
+                  setActiveWeaponSlot('primary');
+                  setWeapon(weaponBindingMap.primary.weapon.id);
+                }}
+                className="rounded-xl border border-red-400/20 bg-red-400/10 px-2 py-3 text-[9px] font-bold uppercase tracking-[0.16em] text-red-200 active:scale-95"
+              >
+                P1
+              </button>
+              <button
+                {...createTouchHoldHandlers('MouseRight')}
+                onClick={() => {
+                  setActiveWeaponSlot('secondary');
+                  setWeapon(weaponBindingMap.secondary.weapon.id);
+                }}
+                className="rounded-xl border border-orange-400/20 bg-orange-400/10 px-2 py-3 text-[9px] font-bold uppercase tracking-[0.16em] text-orange-200 active:scale-95"
+              >
+                P2
+              </button>
+              <button
+                {...createTouchHoldHandlers('KeyF')}
+                onClick={() => {
+                  setActiveWeaponSlot('heavy');
+                  setWeapon(weaponBindingMap.heavy.weapon.id);
+                }}
+                className="rounded-xl border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-3 text-[9px] font-bold uppercase tracking-[0.16em] text-fuchsia-200 active:scale-95"
+              >
+                P3
+              </button>
+            </div>
+            <button
+              onClick={() => setIsScanning(!isScanning)}
+              className={`rounded-xl border px-2 py-3 text-[9px] font-bold uppercase tracking-[0.18em] active:scale-95 ${isScanning ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-200' : 'border-white/10 bg-white/5 text-white/75'}`}
+            >
+              Scan / Inspect
             </button>
           </div>
         </div>
