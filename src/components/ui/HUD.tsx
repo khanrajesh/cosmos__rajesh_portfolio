@@ -20,7 +20,7 @@ export const HUD = () => {
     setTimeScale, 
     showOrbits, 
     setShowOrbits,
-    isAutoPilot,
+    isAutoPilot, 
     setAutoPilot,
     isBoosting,
     isScanning,
