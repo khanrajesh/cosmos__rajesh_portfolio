@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence, useScroll, useSpring, useTransform } from 'motion/react';
+import { motion, AnimatePresence, useScroll, useSpring, useTransform, useMotionValueEvent } from 'motion/react';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import { 
@@ -7,7 +7,8 @@ import {
   History, Heart, Mail, Github, Linkedin, ExternalLink,
   Cpu, Database, Globe, Smartphone, Brain, Layers,
   Apple, Server, GraduationCap, Phone, Send, CheckCircle2,
-  Terminal, Monitor, Sparkles, Zap, Shield, MousePointer2
+  Terminal, Monitor, Sparkles, Zap, Shield, MousePointer2,
+  Menu as MenuIcon, X
 } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore';
 import { PORTFOLIO_DATA } from '../../constants/portfolioData';
@@ -30,10 +31,45 @@ export const PortfolioLanding = () => {
   const { setStatus } = useGameStore();
   const [activeSection, setActiveSection] = useState('home');
   const [scrolled, setScrolled] = useState(false);
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mouse = useRef(new THREE.Vector2(0, 0));
   const scrollRef = useRef(0);
+  const { scrollY } = useScroll();
   const { scrollYProgress } = useScroll();
   const smoothScroll = useSpring(scrollYProgress, { stiffness: 100, damping: 30, restDelta: 0.001 });
+
+  // Header visibility logic
+  useMotionValueEvent(scrollY, "change", (latest) => {
+    const previous = scrollY.getPrevious() || 0;
+    const diff = latest - previous;
+    
+    // Hide header when scrolling down, show when scrolling up
+    // But always show at the very top
+    if (latest < 50) {
+      setHeaderVisible(true);
+    } else if (diff > 5) { // Scrolling down
+      setHeaderVisible(false);
+    } else if (diff < -5) { // Scrolling up
+      setHeaderVisible(true);
+    }
+    
+    setScrolled(latest > 50);
+    
+    // Update active section
+    const sections = PORTFOLIO_DATA.navItems.map(item => item.id);
+    for (const section of sections) {
+      const element = document.getElementById(section);
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        if (rect.top <= 200 && rect.bottom >= 200) {
+          setActiveSection(section);
+        }
+      }
+    }
+    
+    scrollRef.current = latest / (document.documentElement.scrollHeight - window.innerHeight);
+  });
 
   // Mouse tracking for parallax
   useEffect(() => {
@@ -45,41 +81,18 @@ export const PortfolioLanding = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // Scroll tracking for depth
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 50);
-      scrollRef.current = window.scrollY / (document.documentElement.scrollHeight - window.innerHeight);
-      
-      const sections = PORTFOLIO_DATA.navItems.map(item => item.id);
-      for (const section of sections) {
-        const element = document.getElementById(section);
-        if (element) {
-          const rect = element.getBoundingClientRect();
-          if (rect.top <= 200 && rect.bottom >= 200) {
-            setActiveSection(section);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
   const scrollTo = (id: string) => {
     const element = document.getElementById(id);
     if (element) {
       const offset = 80;
-      const bodyRect = document.body.getBoundingClientRect().top;
-      const elementRect = element.getBoundingClientRect().top;
-      const elementPosition = elementRect - bodyRect;
+      const elementPosition = element.getBoundingClientRect().top + window.scrollY;
       const offsetPosition = elementPosition - offset;
 
       window.scrollTo({
         top: offsetPosition,
         behavior: 'smooth'
       });
+      setMobileMenuOpen(false);
     }
   };
 
@@ -90,10 +103,10 @@ export const PortfolioLanding = () => {
   return (
     <div className="relative min-h-screen bg-[#020205] text-white font-sans selection:bg-[#00ffff] selection:text-black overflow-x-hidden">
       {/* --- BACKGROUND SHIP LAYER --- */}
-      <div className="fixed inset-0 z-0 pointer-events-none opacity-40">
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-60">
         <Canvas camera={{ position: [0, 0, 15], fov: 45 }}>
-          <ambientLight intensity={0.5} />
-          <pointLight position={[10, 10, 10]} intensity={1} color="#00ffff" />
+          <ambientLight intensity={0.8} />
+          <pointLight position={[10, 10, 10]} intensity={2} color="#00ffff" />
           <PortfolioBackgroundShip mouse={mouse} scroll={scrollRef} />
         </Canvas>
       </div>
@@ -115,7 +128,12 @@ export const PortfolioLanding = () => {
       </div>
 
       {/* --- NAVIGATION --- */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? 'bg-black/80 backdrop-blur-xl border-b border-[#00ffff]/20 py-4' : 'bg-transparent py-8'}`}>
+      <motion.nav 
+        initial={{ y: 0 }}
+        animate={{ y: headerVisible ? 0 : -100 }}
+        transition={{ duration: 0.3, ease: "easeInOut" }}
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? 'bg-black/80 backdrop-blur-xl border-b border-[#00ffff]/20 py-4' : 'bg-transparent py-8'}`}
+      >
         <div className="max-w-7xl mx-auto px-8 flex items-center justify-between">
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
@@ -150,13 +168,51 @@ export const PortfolioLanding = () => {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               onClick={handleStartGame}
-              className="px-6 py-2 bg-[#00ffff] text-black text-[10px] font-black uppercase tracking-widest rounded hover:bg-white transition-all shadow-[0_0_20px_rgba(0,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] active:scale-95"
+              className="hidden md:block px-6 py-2 bg-[#00ffff] text-black text-[10px] font-black uppercase tracking-widest rounded hover:bg-white transition-all shadow-[0_0_20px_rgba(0,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] active:scale-95"
             >
               {PORTFOLIO_DATA.ctas.start}
             </motion.button>
+
+            {/* Mobile Menu Toggle */}
+            <button 
+              className="lg:hidden p-2 text-white/70 hover:text-[#00ffff] transition-colors"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X size={24} /> : <MenuIcon size={24} />}
+            </button>
           </div>
         </div>
-      </nav>
+
+        {/* Mobile Menu Overlay */}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="lg:hidden bg-black/95 backdrop-blur-2xl border-b border-[#00ffff]/10 overflow-hidden"
+            >
+              <div className="px-8 py-12 flex flex-col gap-6">
+                {PORTFOLIO_DATA.navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => scrollTo(item.id)}
+                    className={`text-lg font-black tracking-[0.2em] uppercase text-left transition-all ${activeSection === item.id ? 'text-[#00ffff] translate-x-4' : 'text-white/40'}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+                <button
+                  onClick={handleStartGame}
+                  className="mt-4 px-8 py-4 bg-[#00ffff] text-black font-black uppercase tracking-widest text-xs rounded text-center"
+                >
+                  {PORTFOLIO_DATA.ctas.start}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.nav>
 
       {/* --- HERO SECTION --- */}
       <section id="home" className="relative min-h-screen flex items-center pt-20 px-8 overflow-hidden">

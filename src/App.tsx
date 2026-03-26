@@ -233,7 +233,7 @@ export default function App() {
   }, [isPaused, status, setPaused]);
 
   return (
-    <div className="w-full h-screen bg-[#020205] overflow-hidden">
+    <div className={`w-full ${status === 'portfolio' ? 'relative' : 'h-screen overflow-hidden'} bg-[#020205] custom-scrollbar`}>
       <AnimatePresence mode="wait">
         {status === 'portfolio' ? (
           <motion.div
@@ -242,7 +242,7 @@ export default function App() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9, filter: 'blur(10px)' }}
             transition={{ duration: 0.8, ease: [0.43, 0.13, 0.23, 0.96] }}
-            className="w-full h-full overflow-y-auto custom-scrollbar"
+            className="w-full min-h-screen"
           >
             <PortfolioLanding />
           </motion.div>

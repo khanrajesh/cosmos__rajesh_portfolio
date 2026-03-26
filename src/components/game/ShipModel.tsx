@@ -55,22 +55,23 @@ export const ShipModel = ({
   // Materials
   const materials = useMemo(() => ({
     hull: new THREE.MeshStandardMaterial({ 
-      color: '#ffffff', // Changed to white
-      metalness: 0.6, 
-      roughness: 0.3,
-      envMapIntensity: 1.5
+      color: '#ffffff', // Pure white
+      metalness: 0.7, 
+      roughness: 0.15,
+      envMapIntensity: 2.5
     }),
     panels: new THREE.MeshStandardMaterial({ 
-      color: '#d0d0d0', // Light gray panels for contrast on white hull
+      color: '#f0f0f0', // Off-white for panels
       metalness: 0.8, 
-      roughness: 0.4 
+      roughness: 0.2 
     }),
     cockpit: new THREE.MeshStandardMaterial({ 
-      color: '#00ffff', 
+      color: '#44aaff', // Subtle blue tint
       transparent: true, 
-      opacity: 0.6, 
+      opacity: 0.4, 
       metalness: 1, 
-      roughness: 0 
+      roughness: 0.05,
+      envMapIntensity: 3
     }),
     emissive: new THREE.MeshStandardMaterial({ 
       color: '#00ffff', 
@@ -117,13 +118,29 @@ export const ShipModel = ({
     <group ref={groupRef}>
       <Float speed={2} rotationIntensity={0.15} floatIntensity={0.3}>
         {/* --- MAIN FUSELAGE --- */}
-        <mesh material={materials.hull} castShadow>
-          <capsuleGeometry args={[0.55, 2.8, 6, 24]} />
-        </mesh>
+        <group>
+          {/* Core Body */}
+          <mesh material={materials.hull} castShadow>
+            <capsuleGeometry args={[0.5, 3.0, 8, 32]} />
+          </mesh>
+          
+          {/* Nose Cone - Sharper profile */}
+          <mesh position={[0, 0, 2.0]} rotation={[Math.PI / 2, 0, 0]} material={materials.panels}>
+            <cylinderGeometry args={[0.1, 0.5, 0.8, 16]} />
+          </mesh>
+
+          {/* Fuselage Side Intakes / Structural Elements */}
+          {[-1, 1].map((side) => (
+            <mesh key={`intake-${side}`} position={[side * 0.45, 0, 0.2]} rotation={[0, 0, side * 0.2]}>
+              <boxGeometry args={[0.3, 0.6, 1.8]} />
+              <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
+            </mesh>
+          ))}
+        </group>
         
         {/* Top Spine - More aggressive profile */}
-        <mesh position={[0, 0.45, -0.2]} material={materials.panels}>
-          <boxGeometry args={[0.25, 0.3, 3.2]} />
+        <mesh position={[0, 0.45, -0.4]} material={materials.panels}>
+          <boxGeometry args={[0.2, 0.35, 3.6]} />
         </mesh>
 
         {/* --- COCKPIT --- */}
@@ -146,18 +163,26 @@ export const ShipModel = ({
         ))}
 
         {/* --- ENGINE SECTION --- */}
-        <group position={[0, 0, -2.1]}>
+        <group position={[0, 0, -2.4]}>
           {/* Main Engine Housing */}
           <mesh material={materials.panels} rotation={[Math.PI / 2, 0, 0]}>
-            <cylinderGeometry args={[0.6, 0.85, 1.4, 12]} />
+            <cylinderGeometry args={[0.55, 0.8, 1.6, 16]} />
           </mesh>
           
-          {/* Engine Winglets */}
+          {/* Engine Winglets - Improved Silhouette */}
           {[-1, 1].map((side) => (
-            <mesh key={`eng-wing-${side}`} position={[side * 0.9, 0, -0.2]} rotation={[0, 0, side * 0.4]}>
-              <boxGeometry args={[0.8, 0.05, 0.8]} />
-              <meshStandardMaterial color="#d0d0d0" metalness={0.8} roughness={0.2} />
-            </mesh>
+            <group key={`eng-wing-group-${side}`} position={[side * 0.8, 0, 0]}>
+              {/* Horizontal Winglet */}
+              <mesh rotation={[0, 0, side * 0.2]}>
+                <boxGeometry args={[1.2, 0.05, 1.2]} />
+                <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
+              </mesh>
+              {/* Vertical Tip */}
+              <mesh position={[side * 0.6, 0.3, 0]} rotation={[0, 0, side * 0.5]}>
+                <boxGeometry args={[0.05, 0.8, 1.0]} />
+                <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
+              </mesh>
+            </group>
           ))}
 
           {/* Dual Exhausts */}
@@ -207,25 +232,32 @@ export const ShipModel = ({
         ))}
 
         {/* --- MAIN WINGS --- */}
-        <group position={[0, 0, -0.6]}>
+        <group position={[0, 0, -0.8]}>
           {/* Horizontal Wings - Tapered look */}
           <mesh rotation={[0, 0, 0]}>
-            <boxGeometry args={[5.2, 0.04, 1.4]} />
+            <boxGeometry args={[5.8, 0.04, 1.6]} />
             <meshStandardMaterial color="#ffffff" metalness={0.7} roughness={0.3} />
           </mesh>
-          {/* Wingtip Winglets */}
+          {/* Wingtip Winglets - More prominent */}
           {[-1, 1].map((side) => (
-            <mesh key={`wingtip-${side}`} position={[side * 2.6, 0.2, 0]} rotation={[0, 0, side * 0.8]}>
-              <boxGeometry args={[0.04, 0.6, 1.0]} />
-              <meshStandardMaterial color="#ffffff" metalness={0.7} roughness={0.3} />
-            </mesh>
+            <group key={`wingtip-group-${side}`} position={[side * 2.9, 0, 0]}>
+              <mesh position={[0, 0.4, 0]} rotation={[0, 0, side * 0.6]}>
+                <boxGeometry args={[0.05, 1.2, 1.4]} />
+                <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
+              </mesh>
+              {/* Secondary Winglet */}
+              <mesh position={[side * -0.4, 0.2, -0.2]} rotation={[0, side * 0.4, side * 0.8]}>
+                <boxGeometry args={[0.6, 0.04, 0.8]} />
+                <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
+              </mesh>
+            </group>
           ))}
         </group>
 
         {/* Vertical Fin - More aggressive */}
-        <mesh position={[0, 0.7, -1.4]} rotation={[-0.2, 0, 0]}>
-          <boxGeometry args={[0.04, 1.0, 1.8]} />
-          <meshStandardMaterial color="#d0d0d0" metalness={0.8} roughness={0.3} />
+        <mesh position={[0, 0.8, -1.8]} rotation={[-0.3, 0, 0]}>
+          <boxGeometry args={[0.05, 1.4, 2.2]} />
+          <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
         </mesh>
 
         {/* --- SENSOR MODULE / ANTENNA --- */}

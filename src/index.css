@@ -5,9 +5,13 @@
 }
 
 @layer base {
+  html {
+    @apply bg-[#020205] scroll-smooth;
+  }
   body {
-    @apply bg-[#020205] text-white overflow-hidden select-none;
+    @apply bg-[#020205] text-white overflow-x-hidden;
     font-family: var(--font-mono);
+    min-height: 100vh;
   }
 }
 
