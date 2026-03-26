@@ -4,9 +4,11 @@ import { Loader } from '@react-three/drei';
 import { SpaceScene } from './components/game/SpaceScene';
 import { HUD } from './components/ui/HUD';
 import { Menu } from './components/ui/Menu';
+import { PortfolioLanding } from './components/ui/PortfolioLanding';
 import { useGameStore } from './store/useGameStore';
 import { motion, AnimatePresence } from 'motion/react';
-import { RotateCcw, Home, Loader2, Shield, Zap, Radar } from 'lucide-react';
+import { RotateCcw, Home, Loader2, Shield, Zap, Radar, User, FileText, ArrowLeft } from 'lucide-react';
+import { PORTFOLIO_DATA } from './constants/portfolioData';
 
 const LoadingScreen = () => {
   const { setStatus } = useGameStore();
@@ -121,25 +123,61 @@ const PauseOverlay = () => {
             Resume Mission
           </button>
           
-          <button 
-            onClick={() => {
-              setPaused(false);
-              window.location.reload();
-            }}
-            className="w-full py-4 border border-white/20 text-white uppercase tracking-widest text-xs hover:bg-white/10 transition-colors flex items-center justify-center gap-2"
-          >
-            <RotateCcw size={14} /> Restart Simulation
-          </button>
+          <div className="grid grid-cols-2 gap-4">
+            <button 
+              onClick={() => {
+                setPaused(false);
+                window.location.reload();
+              }}
+              className="py-4 border border-white/20 text-white uppercase tracking-widest text-[10px] hover:bg-white/10 transition-colors flex items-center justify-center gap-2"
+            >
+              <RotateCcw size={12} /> Restart
+            </button>
+
+            <button 
+              onClick={() => {
+                setPaused(false);
+                setStatus('menu');
+              }}
+              className="py-4 border border-white/20 text-white uppercase tracking-widest text-[10px] hover:bg-white/10 transition-colors flex items-center justify-center gap-2"
+            >
+              <Home size={12} /> Hangar
+            </button>
+          </div>
+
+          <div className="h-px bg-white/10 my-4" />
 
           <button 
             onClick={() => {
               setPaused(false);
-              setStatus('menu');
+              setStatus('portfolio');
             }}
-            className="w-full py-4 border border-white/20 text-white uppercase tracking-widest text-xs hover:bg-white/10 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-4 border border-[#00ffff]/40 text-[#00ffff] uppercase tracking-widest text-xs hover:bg-[#00ffff]/10 transition-colors flex items-center justify-center gap-2"
           >
-            <Home size={14} /> Return to Hangar
+            <ArrowLeft size={14} /> Back to Portfolio
           </button>
+
+          <div className="grid grid-cols-2 gap-4">
+            <button 
+              onClick={() => {
+                setPaused(false);
+                setStatus('portfolio');
+                setTimeout(() => {
+                  const el = document.getElementById('home');
+                  el?.scrollIntoView({ behavior: 'smooth' });
+                }, 100);
+              }}
+              className="py-3 border border-white/10 text-white/60 uppercase tracking-widest text-[9px] hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
+            >
+              <User size={12} /> About Rajesh
+            </button>
+            <button 
+              onClick={() => window.open('#', '_blank')}
+              className="py-3 border border-white/10 text-white/60 uppercase tracking-widest text-[9px] hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
+            >
+              <FileText size={12} /> Resume
+            </button>
+          </div>
         </div>
 
         <div className="pt-8 border-t border-white/5">
@@ -196,30 +234,53 @@ export default function App() {
 
   return (
     <div className="w-full h-screen bg-[#020205] overflow-hidden">
-      {isReady && (
-        <Canvas
-          gl={{ antialias: true, alpha: true }}
-          dpr={[1, 2]}
-          camera={{ position: [0, 0, 500], fov: 60, near: 0.1, far: 50000 }}
-        >
-          <Suspense fallback={null}>
-            <SpaceScene />
-          </Suspense>
-        </Canvas>
-      )}
-      
-      <HUD />
-      <Menu />
-      
-      <AnimatePresence>
-        {status === 'loading' && <LoadingScreen />}
-        {isPaused && <PauseOverlay />}
-      </AnimatePresence>
+      <AnimatePresence mode="wait">
+        {status === 'portfolio' ? (
+          <motion.div
+            key="portfolio"
+            initial={{ opacity: 0, scale: 1.1 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9, filter: 'blur(10px)' }}
+            transition={{ duration: 0.8, ease: [0.43, 0.13, 0.23, 0.96] }}
+            className="w-full h-full overflow-y-auto custom-scrollbar"
+          >
+            <PortfolioLanding />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="game"
+            initial={{ opacity: 0, scale: 1.2 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 1, ease: "easeOut" }}
+            className="w-full h-full relative"
+          >
+            {isReady && (
+              <Canvas
+                gl={{ antialias: true, alpha: true }}
+                dpr={[1, 2]}
+                camera={{ position: [0, 0, 500], fov: 60, near: 0.1, far: 50000 }}
+              >
+                <Suspense fallback={null}>
+                  <SpaceScene />
+                </Suspense>
+              </Canvas>
+            )}
+            
+            <HUD />
+            <Menu />
+            
+            <AnimatePresence>
+              {status === 'loading' && <LoadingScreen />}
+              {isPaused && <PauseOverlay />}
+            </AnimatePresence>
 
-      <Loader />
-      
-      {/* Global Vignette Overlay */}
-      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]" />
+            <Loader />
+            
+            {/* Global Vignette Overlay */}
+            <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.4)_100%)]" />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

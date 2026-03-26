@@ -90,7 +90,7 @@ export interface PlanetData {
   gravityStrength: number;
 }
 
-export type GameStatus = 'loading' | 'menu' | 'playing';
+export type GameStatus = 'loading' | 'menu' | 'playing' | 'portfolio';
 export type CameraMode = 'pilot' | 'explorer' | 'cinematic';
 export type GraphicsQuality = 'low' | 'medium' | 'high';
 export type GameMode = 'explorer' | 'sandbox';
@@ -226,7 +226,7 @@ interface GameState {
 }
 
 export const useGameStore = create<GameState>((set) => ({
-  status: 'menu',
+  status: 'portfolio',
   gameMode: 'explorer',
   
   shipHealth: 100,

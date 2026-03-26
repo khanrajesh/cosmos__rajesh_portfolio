@@ -1,6 +1,6 @@
 import { useGameStore, GraphicsQuality } from '../../store/useGameStore';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Settings, Info, ChevronRight, Radar, Zap, Shield, Monitor, X } from 'lucide-react';
+import { Play, Settings, Info, ChevronRight, Radar, Zap, Shield, Monitor, X, ArrowLeft } from 'lucide-react';
 import { useState } from 'react';
 
 export const Menu = () => {
@@ -78,10 +78,11 @@ export const Menu = () => {
                   initial={{ x: -20, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: 0.4 }}
-                  className="flex items-center justify-center gap-3 p-4 border border-white/10 text-white/40 hover:text-white hover:border-white/30 transition-all hover:bg-white/5 uppercase tracking-widest text-[10px]"
+                  onClick={() => setStatus('portfolio')}
+                  className="flex items-center justify-center gap-3 p-4 border border-[#00ffff]/20 text-[#00ffff]/60 hover:text-[#00ffff] hover:border-[#00ffff]/40 transition-all hover:bg-[#00ffff]/5 uppercase tracking-widest text-[10px]"
                 >
-                  <Info size={14} />
-                  Manual
+                  <ArrowLeft size={14} />
+                  Portfolio
                 </motion.button>
               </div>
             </div>
