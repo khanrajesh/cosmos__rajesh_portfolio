@@ -1,0 +1,234 @@
+import { useRef, useMemo } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { Text, Float, Html } from '@react-three/drei';
+import * as THREE from 'three';
+import { useGameStore, PlanetData } from '../../store/useGameStore';
+import { DebrisSystem } from './DebrisSystem';
+import { AlertTriangle } from 'lucide-react';
+import { Moon, Atmosphere, Clouds, Rings, TargetHighlight, GravityWell } from './PlanetComponents';
+
+interface PlanetProps {
+  data: PlanetData;
+}
+
+export const Planet = ({ data }: PlanetProps) => {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
+  const { 
+    simulationTime, 
+    targetPlanetId, 
+    setTarget, 
+    showOrbits, 
+    isScanning, 
+    scanProgress,
+    planetStates,
+    scannedPlanetIds,
+    updatePlanetPosition
+  } = useGameStore();
+
+  const isTarget = targetPlanetId === data.id;
+  const state = planetStates[data.id] || { damage: 0, isCritical: false, health: 100, isDestroyed: false };
+  const isScanned = scannedPlanetIds.includes(data.id);
+  const visuals = data.visuals;
+
+  const damageStage = useMemo(() => {
+    const d = state.damage;
+    if (visuals.type === 'gas') {
+      if (d >= 1) return 'DISPERSED';
+      if (d > 0.8) return 'CORE COLLAPSE';
+      if (d > 0.6) return 'STORM RUPTURE';
+      if (d > 0.3) return 'ATMOS DISTURBANCE';
+      return 'INTACT';
+    } else {
+      if (d >= 1) return 'DESTROYED';
+      if (d > 0.8) return 'DESTABILIZED';
+      if (d > 0.6) return 'SEVERE FRACTURE';
+      if (d > 0.4) return 'CRACKED';
+      if (d > 0.1) return 'IMPACTED';
+      return 'INTACT';
+    }
+  }, [state.damage, visuals.type]);
+
+  // Calculate orbital position
+  useFrame(() => {
+    if (groupRef.current) {
+      const angle = simulationTime * data.speed;
+      groupRef.current.position.x = Math.cos(angle) * data.distance;
+      groupRef.current.position.z = Math.sin(angle) * data.distance;
+      
+      // Sync position to store for gravity overlay
+      updatePlanetPosition(data.id, groupRef.current.position);
+    }
+    if (meshRef.current) {
+      meshRef.current.rotation.y += 0.002;
+    }
+  });
+
+  const surfaceMaterial = useMemo(() => {
+    const mat = new THREE.MeshStandardMaterial({
+      color: visuals.surfaceColor,
+      roughness: visuals.roughness ?? 0.7,
+      metalness: visuals.metalness ?? 0.2,
+      emissive: visuals.emissiveColor ?? '#000000',
+      emissiveIntensity: visuals.emissiveIntensity ?? 0,
+    });
+
+    // Add damage effects
+    if (state.damage > 0) {
+      const damageColor = visuals.type === 'gas' 
+        ? (visuals.damageConfig.stormColor || visuals.damageConfig.glowColor)
+        : visuals.damageConfig.glowColor;
+      
+      mat.emissive.set(damageColor);
+      mat.emissiveIntensity = state.damage * 5;
+      
+      if (visuals.type === 'rocky') {
+        mat.color.lerp(new THREE.Color(visuals.damageConfig.crackColor), state.damage * 0.5);
+      }
+    }
+
+    return mat;
+  }, [visuals, state.damage]);
+
+  if (state.isDestroyed) {
+    return (
+      <group ref={groupRef}>
+        <DebrisSystem 
+          id={data.id} 
+          position={new THREE.Vector3()} 
+          radius={data.radius} 
+          color={visuals.damageConfig.glowColor} 
+          startTime={state.destructionTime || 0} 
+        />
+        
+        <GravityWell planet={data} isTarget={isTarget} isDestroyed={true} />
+        
+        {data.moons?.map((moon) => (
+          <Moon key={moon.id} data={moon} parentPlanetId={data.id} />
+        ))}
+
+        <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
+          <Text
+            position={[0, data.radius + 6, 0]}
+            fontSize={data.radius * 0.2 + 2}
+            color="#ff0000"
+            anchorX="center"
+            anchorY="middle"
+            font="https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hjp-Ek-_EeA.woff"
+          >
+            {data.name} [REMNANTS]
+          </Text>
+        </Float>
+      </group>
+    );
+  }
+
+  return (
+    <group>
+      {/* Orbit Ring */}
+      {showOrbits && data.distance > 0 && (
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[data.distance - 0.2, data.distance + 0.2, 256]} />
+          <meshBasicMaterial 
+            color={state.isDestroyed ? "#ff0000" : (state.damage > 0.6 ? "#ff8800" : "#ffffff")} 
+            transparent 
+            opacity={state.isDestroyed ? 0.02 : (state.damage > 0.6 ? 0.1 : 0.05)} 
+            side={THREE.DoubleSide} 
+            wireframe={state.damage > 0.6}
+          />
+        </mesh>
+      )}
+
+      <group ref={groupRef}>
+        <group 
+          onClick={(e) => {
+            e.stopPropagation();
+            setTarget(data.id);
+          }}
+        >
+          <mesh ref={meshRef} material={surfaceMaterial}>
+            <sphereGeometry args={[data.radius, 64, 64]} />
+          </mesh>
+
+          {visuals.atmosphere && (
+            <Atmosphere config={visuals.atmosphere} radius={data.radius} />
+          )}
+
+          {visuals.clouds && (
+            <Clouds config={visuals.clouds} radius={data.radius} />
+          )}
+
+          {visuals.rings && (
+            <Rings config={visuals.rings} radius={data.radius} />
+          )}
+
+          {isTarget && (
+            <TargetHighlight 
+              radius={data.radius} 
+              isScanning={isScanning} 
+              scanProgress={scanProgress} 
+            />
+          )}
+
+          <GravityWell planet={data} isTarget={isTarget} />
+
+          {state.isCritical && (
+            <mesh scale={[1.05, 1.05, 1.05]}>
+              <sphereGeometry args={[data.radius, 32, 32]} />
+              <meshBasicMaterial 
+                color={visuals.damageConfig.glowColor} 
+                transparent 
+                opacity={0.3 + Math.sin(Date.now() * 0.01) * 0.2} 
+              />
+            </mesh>
+          )}
+
+          {state.damage > 0 && (
+            <Html position={[0, -data.radius - 4, 0]} center>
+              <div className="flex flex-col items-center gap-1">
+                <div className="px-2 py-1 bg-black/80 border border-red-500/50 rounded text-[8px] font-bold text-red-500 whitespace-nowrap tracking-widest uppercase">
+                  {damageStage}
+                </div>
+                {state.isCritical && (
+                  <div className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-500 text-black text-[7px] font-bold rounded animate-pulse">
+                    <AlertTriangle size={8} />
+                    ORBIT UNSTABLE
+                  </div>
+                )}
+              </div>
+            </Html>
+          )}
+        </group>
+
+        <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
+          <Text
+            position={[0, data.radius + 6, 0]}
+            fontSize={data.radius * 0.2 + 2}
+            color={isTarget ? "#00ffff" : "white"}
+            anchorX="center"
+            anchorY="middle"
+            font="https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hjp-Ek-_EeA.woff"
+          >
+            {data.name}
+          </Text>
+          {isTarget && (
+            <Text
+              position={[0, data.radius + 4, 0]}
+              fontSize={1.5}
+              color="#00ffff"
+              fillOpacity={0.6}
+              anchorX="center"
+              anchorY="middle"
+            >
+              {isScanned ? "DATA SECURED" : "UNSCANNED"}
+            </Text>
+          )}
+        </Float>
+
+        {data.moons?.map((moon) => (
+          <Moon key={moon.id} data={moon} parentPlanetId={data.id} />
+        ))}
+      </group>
+    </group>
+  );
+};

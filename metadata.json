@@ -1,0 +1,5 @@
+{
+  "name": "Cosmos Pilot",
+  "description": "A high-fidelity 3D solar system exploration simulator with cinematic flight and real-time orbital mechanics.",
+  "requestFramePermissions": []
+}
